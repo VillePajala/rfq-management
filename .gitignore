@@ -1,0 +1,15 @@
+.env
+tenders.db
+scraper.log
+chrome_profile/
+venv/
+__pycache__/
+*.pyc
+demo_results.json
+screenshot_*.png
+page_text_*.txt
+page_html_*.html
+email_preview_*.html
+console_preview.html
+excel_preview.html
+all_organizations.json
