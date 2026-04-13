@@ -22,6 +22,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 PROFILE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chrome_profile")
+DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
 
 # Known organization IDs on tarjouspalvelu.fi
 ORGANIZATIONS = {
@@ -62,6 +63,10 @@ def create_driver() -> uc.Chrome:
     options.add_argument("--no-sandbox")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--lang=fi-FI")
+    # Set download directory for ZIP attachments
+    os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+    prefs = {"download.default_directory": DOWNLOADS_DIR, "download.prompt_for_download": False}
+    options.add_experimental_option("prefs", prefs)
     return uc.Chrome(options=options, user_data_dir=PROFILE_DIR)
 
 
@@ -325,6 +330,10 @@ def navigate_to_publications(driver, org_id: str, mode: str = "tenders") -> bool
         # Apply notice type filters
         apply_search_filters(driver, mode)
 
+        # Pause for demo after filters are visible
+        if os.getenv("DEMO_PAUSE", "0") == "1":
+            input("\n  ⏸  DEMO PAUSE — Filters applied. Press Enter to search...\n")
+
         # Set 50 results per page and search
         try:
             driver.execute_script("""
@@ -385,7 +394,7 @@ def extract_page_notices(driver) -> list[dict]:
             // URL and tender ID
             const href = row.getAttribute('href') || '';
             notice.url = href.startsWith('http') ? href : 'https://tarjouspalvelu.fi' + href;
-            const tpMatch = href.match(/tpId=(\d+)/);
+            const tpMatch = href.match(/tpId=(\\d+)/);
             if (tpMatch) notice.tp_id = tpMatch[1];
 
             // Organisation — strip sr-only spans and label text
@@ -438,14 +447,194 @@ def extract_page_notices(driver) -> list[dict]:
     return notices
 
 
-def extract_notices(driver, org_slug: str, max_pages: int = 5) -> list[dict]:
-    """Extract tenders with pagination support. Scrapes up to max_pages pages."""
+DETAIL_TABS = [
+    ("sidebar2", "Summary", "Tiivistelma"),
+    ("sidebar3", "Publication documents", "KokoTarjousPyyntoJaLiitteet"),
+    ("sidebar4", "Questions and answers", "KysymyksetJaVastaukset"),
+    ("sidebar5", "Other terms and conditions", "SoveltuvuusVaatimukset"),
+    ("sidebar6", "Procurement object", "KohteenTiedot"),
+    ("sidebar0", "Persons in charge", "VastuuhenkilotJaOikeudet"),
+]
+
+
+def scrape_detail_page(driver, tender: dict) -> bool:
+    """Scrape a single detail page by clicking its row from the current listings page.
+
+    Clicks the tender link (preserving session), collects text from each tab,
+    then navigates back. Returns True if successful.
+    """
+    tp_id = tender.get("tp_id", "")
+    if not tp_id:
+        return False
+
+    try:
+        # Find the tender row on the current page and click it
+        rows = driver.find_elements(By.CSS_SELECTOR, "a.tp-list__row")
+        clicked = False
+        for row in rows:
+            href = row.get_attribute("href") or ""
+            if f"tpId={tp_id}" in href:
+                ActionChains(driver).move_to_element(row).click().perform()
+                clicked = True
+                break
+
+        if not clicked:
+            return False
+
+        time.sleep(5)
+
+        # Check if we got full access (logged-in detail page)
+        is_edit = "EditoiTarjousta" in driver.current_url
+        tender["detail_full_access"] = is_edit
+
+        if not is_edit:
+            # Public-only view — just grab what's visible
+            tender["detail_text"] = driver.find_element(By.TAG_NAME, "body").text
+            tender["detail_tabs"] = {}
+            driver.back()
+            time.sleep(3)
+            return True
+
+        # Full access — click through each tab and collect content
+        tab_texts = {}
+
+        for sidebar_id, tab_name, vaihe_name in DETAIL_TABS:
+            try:
+                tab_btn = driver.find_elements(By.ID, sidebar_id)
+                if not tab_btn:
+                    continue
+
+                # Check if tab is disabled
+                classes = tab_btn[0].get_attribute("class") or ""
+                if "disabled" in classes:
+                    continue
+
+                ActionChains(driver).move_to_element(tab_btn[0]).click().perform()
+                time.sleep(2)
+
+                # Get the content area text
+                content_divs = driver.find_elements(By.CSS_SELECTOR, "div.content")
+                if content_divs:
+                    tab_texts[tab_name] = content_divs[0].text
+                else:
+                    tab_texts[tab_name] = driver.find_element(By.TAG_NAME, "body").text
+
+            except Exception as e:
+                log(f"    Tab '{tab_name}' error: {e}")
+
+        tender["detail_tabs"] = tab_texts
+
+        # Combine all tab text into a single detail_text for AI consumption
+        combined = []
+        for tab_name, text in tab_texts.items():
+            combined.append(f"=== {tab_name} ===\n{text}")
+        tender["detail_text"] = "\n\n".join(combined)
+
+        # Download all attachments as ZIP if enabled
+        if os.getenv("ENABLE_DOWNLOAD_ATTACHMENTS", "0") == "1":
+            try:
+                import re as _re
+                # Click Publication Documents tab to find ZIP link
+                pub_tab = driver.find_elements(By.ID, "sidebar3")
+                if pub_tab:
+                    ActionChains(driver).move_to_element(pub_tab[0]).click().perform()
+                    time.sleep(3)
+
+                    # Find ZIP link via JavaScript
+                    zip_href = driver.execute_script("""
+                        var links = document.querySelectorAll('a');
+                        for (var a of links) {
+                            if ((a.href || '').includes('/Zip/')) return a.href;
+                        }
+                        return null;
+                    """)
+
+                    if zip_href:
+                        before_files = set(os.listdir(DOWNLOADS_DIR))
+                        # Click the link (stays in same tab, triggers download)
+                        zip_link = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/Zip/"]')
+                        if zip_link:
+                            zip_link[0].click()
+                        else:
+                            driver.get(zip_href)
+
+                        # Wait for download to complete
+                        for _ in range(15):
+                            time.sleep(2)
+                            after_files = set(os.listdir(DOWNLOADS_DIR))
+                            completed = [f for f in (after_files - before_files) if not f.endswith('.crdownload')]
+                            if completed:
+                                filename = completed[0]
+                                filepath = os.path.join(DOWNLOADS_DIR, filename)
+                                tender["attachments_zip"] = filepath
+                                size_kb = os.path.getsize(filepath) // 1024
+                                log(f"    Attachments downloaded: {filename} ({size_kb} KB)")
+                                break
+                        else:
+                            log(f"    Attachment download: timed out")
+                    else:
+                        log(f"    No ZIP download link found")
+            except Exception as e:
+                log(f"    Attachment download error: {e}")
+
+        # Pause for demo if requested
+        if os.getenv("DEMO_PAUSE", "0") == "1":
+            tabs_found = list(tab_texts.keys())
+            log(f"  Detail page scraped: {tender.get('name', '')[:60]}")
+            log(f"  Tabs collected: {', '.join(tabs_found)}")
+            if tender.get("attachments_zip"):
+                log(f"  Attachments: {os.path.basename(tender['attachments_zip'])}")
+            input("\n  ⏸  DEMO PAUSE — Review the detail page. Press Enter to go back...\n")
+
+        driver.back()
+        time.sleep(3)
+        return True
+
+    except Exception as e:
+        log(f"  Detail error on tpId={tp_id}: {e}")
+        try:
+            driver.back()
+            time.sleep(3)
+        except Exception:
+            pass
+        return False
+
+
+def scrape_page_details(driver, page_notices: list[dict], max_details: int = 0) -> int:
+    """Scrape detail pages for tenders on the CURRENT listings page.
+
+    Must be called before navigating to the next page.
+    Returns count of successfully enriched tenders.
+    """
+    to_scrape = page_notices if max_details == 0 else page_notices[:max_details]
+    enriched = 0
+
+    for tender in to_scrape:
+        if scrape_detail_page(driver, tender):
+            enriched += 1
+            if enriched % 5 == 0:
+                log(f"    ...{enriched} detail pages scraped on this page")
+
+    return enriched
+
+
+def extract_notices(driver, org_slug: str, max_pages: int = 5,
+                    scrape_details: bool = False, max_details_per_page: int = 0,
+                    max_details_total: int = 0) -> list[dict]:
+    """Extract tenders with pagination support. Optionally scrapes detail pages per-page.
+
+    scrape_details: if True, click into each tender's detail page on the current
+                    listings page before moving to the next page
+    max_details_per_page: max tenders to detail-scrape per page (0 = all on that page)
+    max_details_total: max detail pages across all pages (0 = unlimited)
+    """
 
     total = get_total_tender_count(driver)
     if total:
         log(f"Total tenders available: {total}")
 
     all_notices = []
+    total_details = 0
 
     for page_num in range(1, max_pages + 1):
         log(f"Scraping page {page_num}...")
@@ -459,6 +648,16 @@ def extract_notices(driver, org_slug: str, max_pages: int = 5) -> list[dict]:
         # Add source org
         for n in page_notices:
             n["source_org"] = org_slug
+
+        # Detail scrape BEFORE leaving this page
+        if scrape_details and (max_details_total == 0 or total_details < max_details_total):
+            remaining = max_details_total - total_details if max_details_total > 0 else max_details_per_page
+            page_limit = min(max_details_per_page, remaining) if max_details_per_page > 0 else remaining
+            log(f"  Scraping detail pages on page {page_num}...")
+            enriched = scrape_page_details(driver, page_notices, page_limit if page_limit > 0 else 0)
+            total_details += enriched
+            full = sum(1 for t in page_notices if t.get("detail_full_access"))
+            log(f"  Page {page_num} details: {enriched} enriched, {full} with full access")
 
         all_notices.extend(page_notices)
 
@@ -482,6 +681,8 @@ def extract_notices(driver, org_slug: str, max_pages: int = 5) -> list[dict]:
     with_published = sum(1 for n in all_notices if n.get("published"))
     log(f"  Deadlines found: {with_deadline}/{len(all_notices)}")
     log(f"  Publication dates found: {with_published}/{len(all_notices)}")
+    if scrape_details:
+        log(f"  Detail pages scraped: {total_details}/{len(all_notices)}")
 
     return all_notices
 
@@ -538,6 +739,22 @@ def scrape_notices(org_slug: str, mode: str = "tenders") -> list[dict]:
             log("ALL LOGIN ATTEMPTS FAILED — continuing with public data only.")
             driver.save_screenshot("screenshot_login_failed.png")
 
+        # Switch UI to Finnish (logged-in only)
+        if logged_in:
+            try:
+                # Open the language dropdown first, then click Finnish
+                toggle = driver.find_elements(By.CSS_SELECTOR, "[data-test-key='languageDropdown']")
+                if toggle:
+                    toggle[0].click()
+                    time.sleep(1)
+                fi_btn = driver.find_elements(By.CSS_SELECTOR, "[data-test-key='languageDropdown.finnish']")
+                if fi_btn:
+                    fi_btn[0].click()
+                    time.sleep(3)
+                    log("UI language switched to Finnish.")
+            except Exception as e:
+                log(f"Language switch skipped: {e}")
+
         log_step(5, f"NAVIGATING TO TENDER LISTINGS (mode={mode})")
         if not navigate_to_publications(driver, org_id, mode):
             return []
@@ -561,91 +778,22 @@ def scrape_notices(org_slug: str, mode: str = "tenders") -> list[dict]:
         driver.save_screenshot(f"screenshot_{org_slug}_listings.png")
         log(f"Screenshot saved: screenshot_{org_slug}_listings.png")
 
-        notices = extract_notices(driver, org_slug)
-
-        # Enrich with detail page data (off by default for fast dev iterations)
-        # Must be done BEFORE pagination moves to next page — click from current page
+        # Detail scraping is now integrated into extraction (per-page)
         enable_detail = os.getenv("ENABLE_DETAIL_SCRAPE", "0") == "1"
-        max_details = int(os.getenv("DETAIL_SCRAPE_COUNT", "0"))
-        if enable_detail and notices:
-            log_step(7, "SCRAPING DETAIL PAGES")
-            to_scrape = notices if max_details == 0 else notices[:max_details]
-            log(f"Scraping detail pages for {len(to_scrape)} tenders...")
-            log("Method: click link → scrape → back (preserves login session)")
+        max_details_total = int(os.getenv("DETAIL_SCRAPE_COUNT", "0"))
 
-            # We need to be on the listings page. Go to page 1.
-            try:
-                driver.execute_script("HaeSivu(1);")
-                time.sleep(5)
-            except Exception:
-                pass
-
-            detail_count = 0
-            for i, tender in enumerate(to_scrape):
-                tp_id = tender.get("tp_id", "")
-                if not tp_id:
-                    continue
-
-                try:
-                    # Find the row on current page and click it
-                    rows = driver.find_elements(By.CSS_SELECTOR, "a.tp-list__row")
-                    clicked = False
-                    for row in rows:
-                        href = row.get_attribute("href") or ""
-                        if f"tpId={tp_id}" in href:
-                            ActionChains(driver).move_to_element(row).click().perform()
-                            clicked = True
-                            break
-
-                    if not clicked:
-                        # Tender might be on a different page — skip for now
-                        continue
-
-                    time.sleep(5)
-
-                    is_edit = "EditoiTarjousta" in driver.current_url
-                    body_text = driver.find_element(By.TAG_NAME, "body").text
-                    tender["detail_text"] = body_text
-                    tender["detail_full_access"] = is_edit
-
-                    detail_data = driver.execute_script("""
-                        const data = {};
-                        const tabs = [];
-                        document.querySelectorAll('a, button, li').forEach(el => {
-                            const text = el.textContent.trim();
-                            if (['PUBLICATION DOCUMENTS', 'QUESTIONS AND ANSWERS',
-                                 'GENERAL CRITERIA', 'TENDER ATTACHMENTS',
-                                 'PROCUREMENT OBJECT', 'PERSONS IN CHARGE'].includes(text)) {
-                                tabs.push(text);
-                            }
-                        });
-                        data.available_tabs = [...new Set(tabs)];
-                        return data;
-                    """)
-                    tender["detail_data"] = detail_data
-                    detail_count += 1
-
-                    if detail_count % 5 == 0:
-                        log(f"  ...{detail_count} detail pages scraped (full_access={is_edit})")
-
-                    driver.back()
-                    time.sleep(3)
-
-                except Exception as e:
-                    log(f"  Error on tpId={tp_id}: {e}")
-                    try:
-                        driver.back()
-                        time.sleep(3)
-                    except Exception:
-                        pass
-
-            full_access = sum(1 for t in to_scrape if t.get("detail_full_access"))
-            log(f"Detail scraping complete. {detail_count} enriched, {full_access} with full access.")
+        if enable_detail:
+            log(f"Detail page scraping: ENABLED (max {max_details_total if max_details_total > 0 else 'all'} total, with tab clicking)")
         else:
-            if notices:
-                log("Detail page scraping: DISABLED (set ENABLE_DETAIL_SCRAPE=1)")
+            log("Detail page scraping: DISABLED (set ENABLE_DETAIL_SCRAPE=1)")
 
-        log_step(8, "SAVING RESULTS")
+        notices = extract_notices(
+            driver, org_slug,
+            scrape_details=enable_detail,
+            max_details_total=max_details_total,
+        )
+
+        log_step(7, "SAVING RESULTS")
         return notices
 
     finally:
@@ -694,6 +842,45 @@ def main():
         for n in notices:
             n.pop("ai_summary", None)
             n.pop("_routing", None)
+
+    elif mode == "combined":
+        # Combined mode: Hilma API + tarjouspalvelu.fi scraping + merge
+        from hilma import search_cgi_relevant
+        from merge import merge_sources
+
+        hilma_days = int(os.getenv("HILMA_DAYS", "7"))
+        print(f"  Mode: COMBINED (Hilma API + tarjouspalvelu.fi)")
+        print(f"  Hilma: last {hilma_days} days")
+        print()
+
+        start_time = time.time()
+
+        # Phase 1: Hilma API (fast, structured)
+        log_step(1, "FETCHING FROM HILMA API")
+        log("Querying Hilma for CGI-relevant tenders...")
+        hilma_tenders = search_cgi_relevant(days=hilma_days, top=200)
+        log(f"Hilma returned {len(hilma_tenders)} tenders")
+
+        # Phase 2: tarjouspalvelu.fi scraping
+        log_step(2, "SCRAPING TARJOUSPALVELU.FI")
+        org = "helsinki"
+        for arg in sys.argv[1:]:
+            if not arg.startswith("-"):
+                org = arg
+                break
+        tp_tenders = scrape_notices(org, mode="tenders")
+        log(f"Tarjouspalvelu returned {len(tp_tenders)} tenders")
+
+        # Phase 3: Merge and deduplicate
+        log_step(3, "MERGING SOURCES")
+        notices = merge_sources(hilma_tenders, tp_tenders)
+        elapsed = time.time() - start_time
+
+        if not notices:
+            print(f"\n  No tenders from either source.")
+            print(f"  Elapsed: {elapsed:.1f} seconds")
+            return
+
     else:
         org = "helsinki"
         for arg in sys.argv[1:]:
@@ -717,10 +904,10 @@ def main():
             print(f"  Elapsed: {elapsed:.1f} seconds")
             return
 
-    org_name = "All Finland" if mode == "offline" else org_name
+    org_name = "All Finland" if mode in ("offline", "combined") else org_name
 
     # Classify and store
-    log_step(9, "CLASSIFYING & STORING TENDERS")
+    log_step(8, "CLASSIFYING & STORING TENDERS")
     for n in notices:
         classify_tender(n)
 
@@ -798,7 +985,7 @@ def main():
     open_tenders = [n for n in notices if n.get("status") == "open"]
     if open_tenders:
         if os.getenv("ENABLE_SUMMARIZATION", "1") != "0":
-            log_step(10, "AI SUMMARIZATION")
+            log_step(9, "AI SUMMARIZATION")
             sample_size = int(os.getenv("SUMMARIZE_COUNT", "10"))
             sample_size = min(sample_size, len(open_tenders))
             log(f"Summarizing {sample_size} tenders with gpt-4o-mini...")
@@ -810,7 +997,7 @@ def main():
 
     # Step 11: Three-tier routing
     if open_tenders:
-        log_step(11, "THREE-TIER ROUTING")
+        log_step(10, "THREE-TIER ROUTING")
         routing = route_all_tenders(open_tenders)
         rs = routing["stats"]
         log(f"Routing results:")
@@ -835,10 +1022,13 @@ def main():
 
         # Send emails if enabled
         if os.getenv("ENABLE_EMAIL", "0") == "1":
-            log_step(12, "SENDING NOTIFICATIONS")
+            log_step(11, "SENDING NOTIFICATIONS")
             from notify import send_notifications
+            max_emails = int(os.getenv("MAX_EMAILS", "0"))
             log("Sending Tier 2 department digest emails...")
-            result = send_notifications(routing["by_department"])
+            if max_emails > 0:
+                log(f"Limiting to {max_emails} department emails (largest first)...")
+            result = send_notifications(routing["by_department"], max_emails=max_emails)
             log(f"Departments: {result['departments']}")
             log(f"Emails sent: {result['sent']}, previewed: {result['previewed']}, failed: {result['failed']}")
 

@@ -42,14 +42,16 @@ def create_default_config():
     instructions["A7"] = "5. Leave the Email field empty to disable a rule without deleting it."
 
     example_rules = [
-        ("ohjelmisto, tietojärjestelmä, ICT, digitaalinen, sovellus, järjestelmä, robotiikka, tekoäly, AI", "IT Consulting", "Test User", "valoraami@gmail.com", "Software and IT systems"),
-        ("rakennus, urakka, perusparannus, rakentaminen, projektinjohto, saneeraus", "Construction", "Test User", "valoraami@gmail.com", "Building and renovation projects"),
-        ("siivous, laitoshuolto, puhdistus, hygienia, catering, ravintola", "Facility Services", "Test User", "valoraami@gmail.com", "Cleaning and facility management"),
-        ("konsultti, asiantuntija, suunnittelu, selvitys, tutkimus", "Consulting", "Test User", "valoraami@gmail.com", "Professional consulting services"),
-        ("terveys, sosiaali, hoito, kuntoutus, lääk, hammas, apuväline", "Health & Social", "Test User", "valoraami@gmail.com", "Healthcare and social services"),
-        ("liikenne, infra, katu, silta, vesi, viemäri, sähkö, energia", "Infrastructure", "Test User", "valoraami@gmail.com", "Infrastructure and utilities"),
-        ("koulutus, opetus, varhaiskasvatus, päiväkoti, koulu", "Education", "Test User", "valoraami@gmail.com", "Education and training"),
-        ("*", "General", "Test User", "valoraami@gmail.com", "Catch-all for unmatched tenders"),
+        ("ohjelmisto, tietojärjestelm, ICT, digitaali, sovellus, järjestelm, robotiikka, tekoäly, AI, tiedonhallin, pilvipalvelu, SaaS", "IT & Software", "Test User", "ville.pajala@cgi.com", "Software, IT systems, cloud, AI, data platforms"),
+        ("tietoturva, kyberturvallisuus, tietosuoja, identiteetti, pääsynhallin, SIEM, SOC", "Cybersecurity", "Test User", "ville.pajala@cgi.com", "Cybersecurity, identity management, monitoring"),
+        ("konsultoin, konsultti, asiantuntija, selvitys, tutkimus, strategia, kehittäminen, muutosjohtaminen", "Consulting", "Test User", "ville.pajala@cgi.com", "IT consulting, business consulting, strategy"),
+        ("terveys, sosiaali, hoito, kuntoutu, potilas, asiakas, hyvinvointialue, SOTE", "Health & Social", "Test User", "ville.pajala@cgi.com", "Healthcare IT, patient systems, wellbeing regions"),
+        ("palkk, palkan, henkilöstö, HR, työvuoro, työajanseuran, rekrytoin", "HR & Payroll", "Test User", "ville.pajala@cgi.com", "HR systems, payroll, workforce scheduling"),
+        ("talous, kirjanpito, laskutus, maksuliiken, ERP, toiminnanohjaus, hankin", "Financial Systems", "Test User", "ville.pajala@cgi.com", "ERP, financial management, procurement systems"),
+        ("integraatio, rajapinta, API-rajapinta, tiedonsiirto, konversio, migraatio", "Integration", "Test User", "ville.pajala@cgi.com", "System integration, APIs, data migration"),
+        ("koulut, opetus, oppiminen, opiskelij, oppilas, varhaiskasvatus", "Education", "Test User", "ville.pajala@cgi.com", "Education IT systems, learning platforms"),
+        ("kartta, paikkatieto, GIS, rekisteri, maankäyttö, kaavoitus, kiinteistö", "Geospatial & Registry", "Test User", "ville.pajala@cgi.com", "Municipal registries, GIS, land use systems"),
+        ("*", "General", "Test User", "ville.pajala@cgi.com", "Catch-all for unmatched tenders"),
     ]
 
     for i, (keywords, dept, contact, email, notes) in enumerate(example_rules, start=2):

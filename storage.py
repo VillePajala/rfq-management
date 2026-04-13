@@ -39,7 +39,13 @@ def init_db():
             first_seen TEXT DEFAULT (datetime('now')),
             last_seen TEXT DEFAULT (datetime('now')),
             notified INTEGER DEFAULT 0,
-            raw_json TEXT
+            raw_json TEXT,
+            source TEXT DEFAULT 'tarjouspalvelu',
+            cpv_codes TEXT,
+            estimated_value REAL,
+            notice_number TEXT,
+            hilma_id TEXT,
+            org_business_id TEXT
         )
     """)
     conn.execute("""
@@ -50,6 +56,12 @@ def init_db():
     """)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_deadline ON tenders(deadline)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_source ON tenders(source)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_cpv ON tenders(cpv_codes)
     """)
 
     # Analysis results table — extracted from results/award tenders
@@ -95,21 +107,32 @@ def init_db():
 CATEGORY_MAP = {
     "open_competition": [
         "Competition",
+        "Kilpailu",
+        "Kilpailutus",
         "Kevennetty kilpailutus",
+        "Kansallinen hankintailmoitus",
+        "National procurement",
     ],
     "dynamic_purchasing": [
         "Dynamic Procurement",
         "DPS",
+        "Dynaaminen hankintajärjestelmä",
+        "Kansallinen dynaaminen",
     ],
     "early_signal": [
         "Planning",
+        "Suunnittelu",
+        "Ennakkoilmoitus",
     ],
     "direct_award": [
         "Direct award",
+        "Suorahankinta",
         "suorahankinta",
     ],
     "result": [
         "Results",
+        "Tulokset",
+        "Jälki-ilmoitus",
     ],
 }
 
@@ -172,11 +195,24 @@ def store_tenders(tenders: list[dict]) -> dict:
         existing = conn.execute("SELECT tp_id, status FROM tenders WHERE tp_id = ?", (tp_id,)).fetchone()
 
         if existing:
-            # Update last_seen
+            # Update last_seen and merge any new fields
             conn.execute("""
-                UPDATE tenders SET last_seen = datetime('now'), status = ?, category = ?
+                UPDATE tenders SET last_seen = datetime('now'), status = ?, category = ?,
+                cpv_codes = COALESCE(?, cpv_codes),
+                estimated_value = COALESCE(?, estimated_value),
+                notice_number = COALESCE(?, notice_number),
+                hilma_id = COALESCE(?, hilma_id),
+                org_business_id = COALESCE(?, org_business_id)
                 WHERE tp_id = ?
-            """, (tender["status"], tender["category"], tp_id))
+            """, (
+                tender["status"], tender["category"],
+                tender.get("cpv_codes") or None,
+                tender.get("estimated_value"),
+                tender.get("notice_number") or None,
+                tender.get("hilma_id") or None,
+                tender.get("org_business_id") or None,
+                tp_id,
+            ))
             updated_count += 1
         else:
             if tender["status"] == "closed":
@@ -187,8 +223,9 @@ def store_tenders(tenders: list[dict]) -> dict:
             conn.execute("""
                 INSERT OR REPLACE INTO tenders
                 (tp_id, name, organisation, source_org, type, category, description,
-                 description_short, published, deadline, url, status, raw_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 description_short, published, deadline, url, status, raw_json,
+                 source, cpv_codes, estimated_value, notice_number, hilma_id, org_business_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 tp_id,
                 tender.get("name", ""),
@@ -203,6 +240,12 @@ def store_tenders(tenders: list[dict]) -> dict:
                 tender.get("url", ""),
                 tender.get("status", "new"),
                 json.dumps(tender, ensure_ascii=False),
+                tender.get("source", "tarjouspalvelu"),
+                tender.get("cpv_codes", ""),
+                tender.get("estimated_value"),
+                tender.get("notice_number", ""),
+                tender.get("hilma_id", ""),
+                tender.get("org_business_id", ""),
             ))
 
     conn.commit()

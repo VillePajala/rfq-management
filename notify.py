@@ -7,6 +7,7 @@ Uses SMTP credentials from .env file.
 """
 
 import os
+import re
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -46,7 +47,20 @@ def build_email_html(contact: str, department: str, tenders: list[dict]) -> str:
         </div>
     """
 
-    for t in tenders:
+    # Sort: AI-summarized on top (relevant first, then not relevant), unsummarized at bottom
+    def sort_key(t):
+        summary = (t.get("ai_summary", "") or "").lower()
+        has_summary = bool(t.get("ai_summary"))
+        is_irrelevant = "not relevant" in summary or "skip" in summary
+        if has_summary and not is_irrelevant:
+            priority = 0  # relevant AI summary — top
+        elif has_summary and is_irrelevant:
+            priority = 1  # NOT RELEVANT summary — below relevant but still above unsummarized
+        else:
+            priority = 2  # no summary — bottom
+        return (priority, t.get("deadline", "zzz"))
+
+    for t in sorted(tenders, key=sort_key):
         name = t.get("name", "N/A")
         org = t.get("organisation", "")
         deadline = t.get("deadline", "No deadline specified")
@@ -54,15 +68,41 @@ def build_email_html(contact: str, department: str, tenders: list[dict]) -> str:
         url = t.get("url", "")
 
         ai_summary = t.get("ai_summary", "")
+        summary_source = t.get("_summary_source", "")
+        category = t.get("category", "")
+
+        # Convert markdown bold (**text**) to HTML <strong> tags
+        if ai_summary:
+            ai_summary_html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', ai_summary)
+            ai_summary_html = ai_summary_html.replace("\n", "<br>")
+        else:
+            ai_summary_html = ""
+
+        # Source indicator — only shown for detail-enriched tenders
+        if summary_source == "detail":
+            source_tag = '<span style="background:#2ecc71; color:white; padding:2px 8px; border-radius:3px; font-size:0.75em; font-weight:bold;">DETAIL PAGE — 6 tabs</span>'
+        else:
+            source_tag = ""
+
+        # Category badge — shows what type of tender this is
+        category_badges = {
+            "open_competition": ("Competition", "#2c3e50"),
+            "early_signal": ("Info Request", "#7f8c8d"),
+            "dynamic_purchasing": ("Dynamic Procurement", "#2c3e50"),
+            "direct_award": ("Direct Award", "#95a5a6"),
+        }
+        badge_text, badge_color = category_badges.get(category, ("", ""))
+        category_tag = f'<span style="background:{badge_color}; color:white; padding:2px 8px; border-radius:3px; font-size:0.75em;">{badge_text}</span> ' if badge_text else ""
 
         html += f"""
         <div class="tender">
             <div class="tender-name">
-                {'<a href="' + url + '">' + name + '</a>' if url else name}
+                {category_tag}{'<a href="' + url + '">' + name + '</a>' if url else name}
             </div>
             <div class="tender-org">{org}</div>
             <div>Deadline: <span class="tender-deadline">{deadline}</span></div>
-            {'<div class="tender-desc" style="background:#eef6ff; padding:8px; margin-top:8px; border-radius:4px; font-size:0.9em;"><strong>AI Summary:</strong><br>' + ai_summary.replace(chr(10), '<br>') + '</div>' if ai_summary else ''}
+            {'<div style="font-size:0.8em; color:#666;">CPV: ' + t.get("cpv_codes", "")[:60] + (' | Value: €{:,.0f}'.format(t["estimated_value"]) if t.get("estimated_value") and t["estimated_value"] > 0 else '') + '</div>' if t.get("cpv_codes") else ''}
+            {'<div class="tender-desc" style="background:#eef6ff; padding:8px; margin-top:8px; border-radius:4px; font-size:0.9em; line-height:1.5;">' + source_tag + ('<br>' if source_tag else '') + ai_summary_html + '</div>' if ai_summary_html else ''}
             {'<div class="tender-desc">' + desc + '</div>' if desc and not ai_summary else ''}
         </div>
         """
@@ -114,8 +154,10 @@ def send_email(to_email: str, subject: str, html_body: str) -> bool:
         return False
 
 
-def send_notifications(notifications: dict[str, list[tuple[dict, dict]]]) -> dict:
-    """Send one email per department. Returns send stats."""
+def send_notifications(notifications: dict[str, list[tuple[dict, dict]]], max_emails: int = 0) -> dict:
+    """Send one email per department. Returns send stats.
+    max_emails: if > 0, only send the N largest department emails.
+    """
     sent = 0
     failed = 0
     previewed = 0
@@ -133,6 +175,10 @@ def send_notifications(notifications: dict[str, list[tuple[dict, dict]]]) -> dic
                     "tenders": [],
                 }
             by_department[dept]["tenders"].append(tender)
+
+    # Limit to N largest departments if requested
+    if max_emails > 0:
+        by_department = dict(sorted(by_department.items(), key=lambda x: -len(x[1]["tenders"]))[:max_emails])
 
     # Send one email per department
     for dept, info in by_department.items():

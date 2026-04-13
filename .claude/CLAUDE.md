@@ -7,9 +7,11 @@ CGI project to automate Finnish public sector tender monitoring from tarjouspalv
 ```
 rfq-management/
 ├── demo_scraper.py          # Main pipeline: scrape → classify → summarize → route → notify → analyze
+├── hilma.py                 # Hilma API client (hankintailmoitukset.fi) — structured tender data, CPV codes
+├── merge.py                 # Merge + deduplicate tenders from Hilma and tarjouspalvelu.fi
 ├── storage.py               # SQLite: tenders, award_analysis, competitors tables. Classification logic.
 ├── routing.py               # Three-tier routing: Tier 1 (products) + Tier 2 (keywords from Excel) + Tier 3
-├── cgi_products.py          # CGI own products (50+), partner platforms (90+), competitors (20+)
+├── cgi_products.py          # CGI own products (34), partner platforms (75), competitors (20)
 ├── notify.py                # Email: one HTML digest per department via SMTP
 ├── summarize.py             # OpenAI: tender summaries (model configurable via OPENAI_MODEL env)
 ├── analyze.py               # Award results analysis: extract winners, prices, build competitor profiles
@@ -17,6 +19,7 @@ rfq-management/
 ├── app.py                   # Streamlit web dashboard (not tested recently — may need fixes)
 ├── create_presentation.py   # Generates CGI PowerPoint (outputs to project dir + Windows desktop)
 ├── run_demo.sh              # Demo script: fast run with emails enabled, good AI model
+├── run_offline_demo.sh      # Offline demo: replays saved data, no browser needed
 ├── routing_config.xlsx      # Tier 2 routing rules (auto-generated, editable by non-technical users)
 ├── email_sample.html        # Mock email for presentation screenshot
 ├── cgi_products.py          # Product/platform/competitor matching with word boundary support
@@ -46,8 +49,10 @@ rfq-management/
 | Email per department | ✅ Working | 8 department emails sent in test |
 | SQLite storage + dedup | ✅ Working | Tracks new vs seen tenders |
 | CGI product/platform list | ✅ Working | 50+ own products, 90+ platforms, 20 competitors |
-| Detail page (full access) | ⚠️ Partially | Works when clicking from listing page (ActionChains click). Fails with driver.get(url). See "Detail Page Fix" below. |
-| Detail page scraping code | ⚠️ Needs testing | Code exists but the back-and-forth navigation needs verification |
+| Detail page (full access) | ✅ Working | Click-navigate from listings preserves login session. driver.get(url) still loses session. |
+| Detail page scraping code | ✅ Refactored | Per-page scraping (no pagination bug). Clicks through all tabs (Summary, Publication Docs, Q&A, Terms, Procurement Object, Persons in Charge). Needs live testing. |
+| Offline demo mode | ✅ Working | `--mode=offline` replays from demo_results.json, no browser needed |
+| Login retry | ✅ Working | Retries login up to 3 times before falling back to public data |
 | Award/price analysis | ⚠️ Untested | Code exists, never run end-to-end with working AI |
 | Streamlit dashboard | ⚠️ Untested | May need fixes after routing refactor |
 | Scheduling | ❌ Not built | Manual runs only |
@@ -75,20 +80,24 @@ This was the hardest part. Getting any step wrong breaks login silently.
 - Password field needs JS clear before typing (Vaadin quirk)
 - ActionChains click is required for Vaadin buttons (JS click doesn't fire events)
 
-## Detail Page Fix (IMPORTANT)
+## Detail Page Scraping
 
-Login session persists when **clicking a tender link from within the page** (ActionChains click on `a.tp-list__row`). This redirects to `EditoiTarjousta?p=XXX` with full access (all tabs: Publication Documents, Q&A, General Criteria, etc.).
+Login session persists when **clicking a tender link from within the page** (ActionChains click on `a.tp-list__row`). Session is **LOST** with `driver.get(url)`.
 
-Session is **LOST** when using `driver.get(url)` to navigate directly. The detail page then shows public-only data.
+**Current implementation (refactored 2026-04-10):**
+1. Detail scraping happens **per-page during extraction** (not after all pages)
+2. For each tender on the current page: ActionChains click → detail page
+3. On detail page, clicks through all sidebar tabs to collect full content:
+   - Summary, Publication documents, Questions and answers
+   - Other terms and conditions, Procurement object, Persons in charge
+4. Each tab's text stored separately in `tender["detail_tabs"]`
+5. All tab text combined into `tender["detail_text"]` for AI consumption
+6. `driver.back()` to return to listings, repeat for next tender on same page
+7. Then paginate to next page
 
-**Fix approach (implemented but needs more testing):**
-1. Stay on listings page after extraction
-2. For each tender to enrich: find its row by tpId, ActionChains click it
-3. Scrape detail page text
-4. `driver.back()` to return to listings
-5. Repeat for next tender
+**Tab selectors:** `button.sidebar__item` with IDs `sidebar0` through `sidebar6`. Tabs load content via AJAX into `div.content`. Disabled tabs (like Activities) are automatically skipped.
 
-**Known issue:** After pagination (scraping 5 pages), going back to page 1 may not show the same tenders. Detail scraping should be done per-page during extraction, not after.
+**Configuration:** `ENABLE_DETAIL_SCRAPE=1` and `DETAIL_SCRAPE_COUNT=N` (0 = all per page)
 
 ## Global Search (logged in)
 
@@ -133,9 +142,10 @@ OPENAI_API_KEY=             # OpenAI API key
 OPENAI_MODEL=gpt-4.1-nano  # Default model (cheap for dev). Use gpt-4o-mini for production.
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=                  # Gmail address (valoraami@gmail.com for test)
+SMTP_USER=                  # Email sender address
 SMTP_PASSWORD=              # Gmail App Password
 SMTP_FROM=                  # Sender address
+HILMA_API_KEY=              # Hilma API key (free, from developer portal)
 ```
 
 ## Feature Toggles
@@ -161,6 +171,12 @@ python demo_scraper.py --mode=tenders
 
 # Demo run (emails ON, good AI model)
 ./run_demo.sh
+
+# Offline demo (no browser — replays from saved demo_results.json)
+./run_offline_demo.sh
+
+# Combined run (Hilma API + tarjouspalvelu.fi — best coverage)
+HILMA_DAYS=7 python demo_scraper.py --mode=combined
 
 # Analytics run (award results for price/competitor intelligence)
 python demo_scraper.py --mode=analytics
@@ -196,9 +212,40 @@ PowerPoint at `Tender_Intelligence_CGI.pptx` and Windows desktop. Generated from
 4. **Keywords per department** — what terms define each department's area?
 5. **Service account** — dedicated tarjouspalvelu.fi login (not personal account)
 
+## Demo Preparation
+
+**Before any demo, do a pre-run to generate fresh fallback data:**
+
+```bash
+# 1. Do a live run to capture fresh data
+source venv/bin/activate
+rm -f tenders.db
+export ENABLE_EMAIL=0
+export ENABLE_SUMMARIZATION=1
+export SUMMARIZE_COUNT=20
+export OPENAI_MODEL=gpt-4o-mini
+python demo_scraper.py --mode=tenders
+
+# 2. Verify demo_results.json was generated
+ls -la demo_results.json
+
+# 3. Test the offline replay (this is your demo fallback)
+rm -f tenders.db
+./run_offline_demo.sh
+```
+
+**Demo flow (recommended order):**
+1. Open `email_sample.html` in browser — "This is what your team gets every morning"
+2. Open `routing_config.xlsx` — "You control routing, no code needed"
+3. Run `./run_offline_demo.sh` — shows the full pipeline in ~30 seconds, no browser risk
+4. Show PowerPoint slides if they want architecture details
+5. Live run (`./run_demo.sh`) only if they specifically ask — have fallback ready
+
+**If live demo login fails:** Don't panic. Switch to `./run_offline_demo.sh` and say "Let me show you with the data we captured earlier." The pipeline output is identical.
+
 ## Next Steps (prioritized)
 
-1. **Fix detail page scraping** — the click-back approach works but needs testing in the full pipeline
+1. **Test detail page scraping** — refactored to per-page with tab clicking, needs live run with ENABLE_DETAIL_SCRAPE=1
 2. **Test demo run** — run `./run_demo.sh`, verify emails arrive with AI summaries
 3. **Test analytics mode** — run `--mode=analytics` to verify price/competitor extraction
 4. **Fix Streamlit dashboard** — likely broken after routing refactor
@@ -212,6 +259,10 @@ PowerPoint at `Tender_Intelligence_CGI.pptx` and Windows desktop. Generated from
 - **CGI stakeholder** — TBD, from the section responsible for tender collection
 - **Ville Pajala** — developer building this PoC
 
+## Future Ideas
+
+**Two-pass selective detail scraping:** Instead of detail-scraping all tenders (slow) or a fixed count (random), use a two-pass approach: (1) scrape all listings and AI-summarize from short descriptions, (2) filter to relevant-only based on AI verdict, (3) go back and detail-scrape only those, (4) re-summarize with richer data. This would mean ~15 detail pages instead of 100. Prerequisite: AI relevance classification must be reliable enough — a false negative means missing a good tender's detail data. The per-page architecture already supports this; the main work is keeping the browser open between passes and paginating back to find specific tenders by tp_id.
+
 ## Key Technical Decisions (for future reference)
 
 - **undetected-chromedriver** — only tool that bypasses Cloudflare Turnstile. Tested Playwright (5 variants), all failed.
@@ -220,3 +271,76 @@ PowerPoint at `Tender_Intelligence_CGI.pptx` and Windows desktop. Generated from
 - **ActionChains for Vaadin** — Cloudia login uses Vaadin framework. JS click doesn't work. Must use Selenium ActionChains.
 - **Word boundary matching** — short product names (SAP, SAS) match Finnish words. Use regex `\b` boundaries.
 - **Session persistence** — login session only persists when clicking links from within the page. `driver.get(url)` loses the session.
+
+## Hilma API (hankintailmoitukset.fi)
+
+Hilma is the official Finnish public procurement notice channel, managed by Hansel Oy. It has a **free public REST API** (no scraping needed).
+
+**Developer portal:** https://hns-hilma-prod-apim.developer.azure-api.net/
+**GitHub docs:** https://github.com/Hankintailmoitukset/hilma-api
+**Authentication:** Self-service registration at developer portal, subscribe to AVP-Read product, instant API key (`Ocp-Apim-Subscription-Key` header)
+**Cost:** Free, commercial use allowed
+**SSL:** Requires `verify=False` in requests due to Zscaler SSL interception on CGI network
+
+**Working endpoints (verified 2026-04-13):**
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `POST /avp/eformnotices/docs/search` | POST | Search eForms notices (current, 149k+ notices) |
+| `GET /avp/eformnotices` | GET | Get eForms index field definitions (85 fields) |
+| `POST /avp/notices/docs/search` | POST | Search legacy notices (frozen at Aug 2023, 105k notices) |
+| `GET /avp/notices` | GET | Get legacy index field definitions (45 fields) |
+
+**Base URL:** `https://api.hankintailmoitukset.fi`
+
+**Search uses Azure Search syntax** (POST with JSON body):
+```python
+requests.post(
+    "https://api.hankintailmoitukset.fi/avp/eformnotices/docs/search",
+    headers={"Ocp-Apim-Subscription-Key": KEY, "Content-Type": "application/json"},
+    json={"search": "tietojärjestelmä", "top": 50, "orderby": "datePublished desc",
+          "filter": "datePublished ge 2026-04-01T00:00:00Z", "count": True},
+    verify=False
+)
+```
+
+**Key eForms fields (85 total):**
+- `titleFi/titleSv/titleEn` — tender title in Finnish/Swedish/English
+- `organisationNameFi` — organisation name
+- `descriptionFi` — tender description
+- `cpvCodes` — EU procurement categories (filterable, searchable)
+- `estimatedValue` + `currency` — contract value
+- `datePublished` — publication date (filterable)
+- `deadline` — submission deadline (filterable)
+- `type` — notice type code (see below)
+- `mainType` — ContractNotices, PriorInformationNotices, ContractAwardNotices, ProcurementPlan
+- `winnerOrganisations` — award result winners
+- `procurementDocumentsUrl` — link to tender documents
+- `organisationNationalRegistrationNumber` — org business ID (Y-tunnus)
+- `isNationalProcurement`, `isEuProcurement` — threshold flags
+- `noticeNumber`, `eFormsId` — identifiers
+
+**Notice type codes:**
+- 4, 7 = Ennakkoilmoitus (Prior info)
+- 16, 17, 18, 19, 20, 21 = Hankintailmoitus (Contract notice)
+- 29, 30, 31, 32, 33, 34, 35 = Jälki-ilmoitus (Award notice)
+- E1 = Markkinakartoitusilmoitus (Market consultation)
+- E3 = Kansallinen hankintailmoitus (National contract notice)
+- E4 = Kansallinen jälki-ilmoitus (National award notice)
+
+**Hilma vs tarjouspalvelu.fi — why we need both:**
+
+| | Hilma | tarjouspalvelu.fi |
+|---|---|---|
+| Owner | Hansel Oy (state) | Cloudia/Mercell (commercial) |
+| API | Yes (free REST) | No (browser automation) |
+| Above-threshold tenders | Yes | Yes |
+| Below-threshold tenders | Rarely | Yes — often ONLY here |
+| Full documents/attachments | No | Yes (ZIP download working) |
+| Q&A, evaluation criteria | No | Yes (detail page tabs) |
+| CPV codes, estimated value | Yes (structured) | No |
+| Winner names (awards) | Yes | Only in description text |
+
+**Combined mode (`--mode=combined`):** Queries Hilma API for CGI-relevant tenders (CPV-filtered), scrapes tarjouspalvelu.fi for below-threshold + documents, merges and deduplicates. Tested: 200 from Hilma + 100 from tarjouspalvelu = 263 unique (39 matched in both).
+
+**Implementation:** `hilma.py` (API client), `merge.py` (dedup logic). CGI-relevant CPV prefixes: 72 (IT), 48 (software), 64 (telecom), 79 (consulting), 80 (education), 85 (health).

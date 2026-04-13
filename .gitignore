@@ -2,6 +2,7 @@
 tenders.db
 scraper.log
 chrome_profile/
+downloads/
 venv/
 __pycache__/
 *.pyc
