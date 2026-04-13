@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Tender Intelligence — Future: AI Agents Architecture</title>
+<style>
+body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; background: white; max-width: 1200px; }
+h1 { color: #0079c1; border-bottom: 3px solid #0079c1; padding-bottom: 10px; font-size: 24px; }
+h2 { color: #333; font-size: 18px; margin-top: 35px; }
+.agent-card { border: 2px solid #0079c1; border-radius: 10px; padding: 20px; margin: 15px 0; }
+.agent-card h3 { color: #0079c1; margin: 0 0 10px 0; font-size: 16px; }
+.agent-card .trigger { background: #e8f4fd; padding: 6px 12px; border-radius: 4px; font-size: 12px; margin: 8px 0; display: inline-block; }
+.agent-card .input, .agent-card .output { margin: 8px 0; padding: 8px 12px; border-radius: 4px; font-size: 12px; }
+.agent-card .input { background: #fff3e0; }
+.agent-card .output { background: #e8f5e9; }
+.agent-card p { font-size: 13px; margin: 4px 0; color: #555; }
+.agent-card .model { color: #e67e22; font-size: 11px; font-weight: bold; }
+.flow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 15px 0; }
+.flow-box { background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 10px 14px; font-size: 12px; text-align: center; min-width: 120px; }
+.flow-box.data { background: #e8f4fd; border-color: #0079c1; }
+.flow-box.agent { background: #fff3e0; border-color: #e67e22; }
+.flow-box.result { background: #e8f5e9; border-color: #2ecc71; }
+.flow-arrow { font-size: 20px; color: #0079c1; }
+.section { background: #fafafa; border-radius: 8px; padding: 20px; margin: 20px 0; }
+table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+th { background: #0079c1; color: white; padding: 8px 12px; text-align: left; font-size: 13px; }
+td { border: 1px solid #ddd; padding: 6px 12px; font-size: 12px; }
+tr:nth-child(even) { background: #f8f9fa; }
+.note { font-size: 11px; color: #888; font-style: italic; }
+</style></head><body>
+
+<h1>Tender Intelligence — Future: AI Agents Architecture</h1>
+<p style="color:#666">How AI agents could perform deep analysis on tender data — reading PDFs, predicting prices, recommending bids.</p>
+
+<div class="section">
+<h2>The Problem Agents Solve</h2>
+<p>Today: AI summaries use listing descriptions and tab text (~1-2 pages of text per tender).</p>
+<p>Tomorrow: AI agents read the actual tender documents (50+ page PDFs, Excel pricing sheets) and extract structured intelligence.</p>
+<p><strong>Key insight:</strong> 300+ organisations use different document formats. Template-based extraction is impossible. Multimodal AI reads any layout like a human — regardless of format.</p>
+</div>
+
+<h2>Proposed Agent Architecture</h2>
+
+<div class="flow">
+  <div class="flow-box data">Tender identified<br>as relevant</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box data">ZIP downloaded<br>from tarjouspalvelu</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box agent">Unpack ZIP<br>index files</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box agent">Route to<br>specialist agents</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box result">Structured output<br>to database + email</div>
+</div>
+
+<div class="agent-card">
+  <h3>🔍 Agent 1: Document Classifier</h3>
+  <div class="trigger">TRIGGER: New ZIP downloaded for a relevant tender</div>
+  <p>Unpacks the ZIP, lists all files, classifies each by type.</p>
+  <div class="input">INPUT: ZIP file contents (file names, sizes, first page of each PDF)</div>
+  <div class="output">OUTPUT: Classified file list — e.g. "tarjouspyyntö.pdf = RFP spec", "hintalomake.xlsx = pricing template", "liite3_arviointikriteerit.pdf = evaluation criteria"</div>
+  <p class="model">Model: gpt-4o-mini (cheap, text-only classification from file names + first pages)</p>
+  <p class="note">Cost: ~$0.001 per tender. Routes files to the right specialist agents.</p>
+</div>
+
+<div class="agent-card">
+  <h3>📋 Agent 2: Requirements Extractor</h3>
+  <div class="trigger">TRIGGER: RFP spec document identified by Agent 1</div>
+  <p>Reads the main tender specification (PDF, often 20-80 pages). Extracts structured requirements.</p>
+  <div class="input">INPUT: PDF pages as images (multimodal) or extracted text</div>
+  <div class="output">OUTPUT: JSON — scope of work, technical requirements, qualification criteria (revenue thresholds, reference cases, certifications), contract duration, SLA requirements</div>
+  <p class="model">Model: Claude Sonnet or GPT-4o (multimodal, reads tables and formatted PDFs)</p>
+  <p class="note">Cost: ~$0.10-0.30 per document. Handles any layout — no templates needed.</p>
+</div>
+
+<div class="agent-card">
+  <h3>⚖️ Agent 3: Evaluation Criteria Extractor</h3>
+  <div class="trigger">TRIGGER: Evaluation criteria document identified by Agent 1</div>
+  <p>Extracts the exact scoring model: what criteria, what weights, what scoring method.</p>
+  <div class="input">INPUT: Evaluation criteria PDF/section (often a table with percentages)</div>
+  <div class="output">OUTPUT: JSON — criteria names, weights (e.g. "Price 40%, Quality 35%, Experience 25%"), scoring method (points, pass/fail, ranking)</div>
+  <p class="model">Model: Claude Sonnet or GPT-4o (multimodal, reads tables accurately)</p>
+  <p class="note">Cost: ~$0.05-0.10 per document. Critical for bid/no-bid decision.</p>
+</div>
+
+<div class="agent-card">
+  <h3>💰 Agent 4: Pricing Model Analyzer</h3>
+  <div class="trigger">TRIGGER: Pricing template (Excel) identified by Agent 1</div>
+  <p>Reads the pricing spreadsheet structure. Determines what kind of pricing is expected.</p>
+  <div class="input">INPUT: Excel file — sheet names, column headers, cell structure</div>
+  <div class="output">OUTPUT: JSON — pricing model type (hourly rates / fixed fee / per-user / per-transaction), price components, volume assumptions, option years</div>
+  <p class="model">Model: gpt-4o-mini (structured Excel → text is straightforward)</p>
+  <p class="note">Cost: ~$0.01 per file. Enables price prediction against historical data.</p>
+</div>
+
+<div class="agent-card">
+  <h3>🎯 Agent 5: Bid Recommendation Engine</h3>
+  <div class="trigger">TRIGGER: All other agents have completed for a tender</div>
+  <p>Takes all extracted data + historical competitor/price intelligence and produces a recommendation.</p>
+  <div class="input">INPUT: Requirements (Agent 2) + Evaluation criteria (Agent 3) + Pricing model (Agent 4) + Historical data (competitor wins, price benchmarks from database) + CGI capability profile</div>
+  <div class="output">OUTPUT: 
+    <br>• Bid/No-Bid recommendation with confidence score
+    <br>• Qualification assessment: does CGI meet the requirements?
+    <br>• Price guidance: based on historical wins in this sector/size
+    <br>• Competitor prediction: who's likely to bid, based on sector + keywords
+    <br>• Risk flags: unusually tight deadline, unfamiliar technology, etc.
+  </div>
+  <p class="model">Model: Claude Opus or GPT-4o (complex reasoning, needs full context)</p>
+  <p class="note">Cost: ~$0.30-0.50 per tender. Only runs on tenders CGI is considering — not all 300.</p>
+</div>
+
+<h2>Agent Pipeline — Complete Flow</h2>
+<div class="flow">
+  <div class="flow-box data">ZIP from<br>tarjouspalvelu</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box agent">Agent 1<br>Classify files<br><span style="color:#999;font-size:10px">$0.001</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box agent">Agent 2<br>Requirements<br><span style="color:#999;font-size:10px">$0.10-0.30</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box agent">Agent 3<br>Eval criteria<br><span style="color:#999;font-size:10px">$0.05-0.10</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box agent">Agent 4<br>Pricing model<br><span style="color:#999;font-size:10px">$0.01</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box agent">Agent 5<br>Bid recommendation<br><span style="color:#999;font-size:10px">$0.30-0.50</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box result">Decision<br>support<br>report</div>
+</div>
+
+<h2>Technology Options for Agent Framework</h2>
+<table>
+<tr><th>Option</th><th>Description</th><th>Pros</th><th>Cons</th></tr>
+<tr><td>Custom Python pipeline</td><td>Sequential scripts calling OpenAI/Claude APIs</td><td>Simple, full control, no dependencies</td><td>Manual orchestration, no retry/resume</td></tr>
+<tr><td>LangChain / LangGraph</td><td>Agent framework with tool use</td><td>Built-in tools, memory, chaining</td><td>Complex, fast-moving API, heavy dependency</td></tr>
+<tr><td>Claude Computer Use</td><td>Claude reads documents visually</td><td>Best multimodal reading, handles any format</td><td>Newer API, higher cost</td></tr>
+<tr><td>Anthropic Agent SDK</td><td>Anthropic's official agent framework</td><td>Native Claude integration, tool use</td><td>Anthropic-only</td></tr>
+<tr><td>Azure AI Document Intelligence</td><td>Microsoft's document parsing</td><td>CGI uses Azure, good OCR</td><td>Template-based = brittle with 300+ formats</td></tr>
+</table>
+
+<p class="note" style="margin-top:10px"><strong>Recommendation:</strong> Start with custom Python pipeline (simplest). Use Claude Sonnet for multimodal PDF reading. Upgrade to agent framework only if the pipeline becomes complex enough to need orchestration.</p>
+
+<h2>Cost Estimate — Agent-Augmented System</h2>
+<table>
+<tr><th>Scenario</th><th>Tenders/month</th><th>Full analysis/month</th><th>Monthly AI cost</th></tr>
+<tr><td>Current (summaries only)</td><td>300</td><td>0</td><td>~€25</td></tr>
+<tr><td>+ Award analysis</td><td>300</td><td>100 awards</td><td>~€35</td></tr>
+<tr><td>+ Document analysis (all relevant)</td><td>300</td><td>50 relevant</td><td>~€55-70</td></tr>
+<tr><td>+ Bid recommendations (selected)</td><td>300</td><td>10-20 pursued</td><td>~€65-85</td></tr>
+</table>
+<p class="note">Even the most expensive scenario is under €100/month in AI costs. The VM (~€30) is the biggest fixed cost.</p>
+
+<div class="section">
+<h2>Implementation Roadmap</h2>
+<p><strong>Phase 1 (now):</strong> Basic summaries + routing + email notifications — DONE</p>
+<p><strong>Phase 2 (weeks):</strong> Detail page scraping + ZIP downloads + SharePoint upload — MOSTLY DONE</p>
+<p><strong>Phase 3 (1-2 months):</strong> Agent 1 (file classifier) + Agent 2 (requirements extractor) — read PDFs, extract structured data</p>
+<p><strong>Phase 4 (2-3 months):</strong> Agent 3 (evaluation criteria) + Agent 4 (pricing) — enable price benchmarking</p>
+<p><strong>Phase 5 (3-6 months):</strong> Agent 5 (bid recommendation) — full decision support with historical data</p>
+<p class="note">Each phase delivers standalone value. No phase depends on completing all previous phases.</p>
+</div>
+
+</body></html>

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Tender Intelligence — System Architecture</title>
+<style>
+body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; background: white; max-width: 1200px; }
+h1 { color: #0079c1; border-bottom: 3px solid #0079c1; padding-bottom: 10px; font-size: 24px; }
+h2 { color: #333; margin-top: 30px; font-size: 18px; }
+.diagram { display: flex; gap: 20px; margin: 20px 0; flex-wrap: wrap; }
+.box { border-radius: 8px; padding: 16px; min-width: 180px; flex: 1; }
+.source { background: #e8f4fd; border: 2px solid #0079c1; }
+.process { background: #fff3e0; border: 2px solid #e67e22; }
+.output { background: #e8f5e9; border: 2px solid #2ecc71; }
+.storage { background: #f3e5f5; border: 2px solid #9b59b6; }
+.future { background: #f5f5f5; border: 2px dashed #999; }
+.box h3 { margin: 0 0 8px 0; font-size: 14px; }
+.box p { margin: 4px 0; font-size: 12px; color: #555; }
+.box .tag { display: inline-block; background: #0079c1; color: white; padding: 2px 8px; border-radius: 3px; font-size: 10px; margin-bottom: 6px; }
+.box .tag.free { background: #2ecc71; }
+.box .tag.cost { background: #e67e22; }
+.box .tag.future { background: #999; }
+.arrow { display: flex; align-items: center; justify-content: center; font-size: 24px; color: #0079c1; min-width: 30px; }
+.section { margin: 30px 0; padding: 20px; background: #fafafa; border-radius: 8px; }
+.row { display: flex; align-items: center; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
+.note { font-size: 12px; color: #777; font-style: italic; margin-top: 5px; }
+table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+th { background: #0079c1; color: white; padding: 10px; text-align: left; }
+td { border: 1px solid #ddd; padding: 8px; font-size: 13px; }
+tr:nth-child(even) { background: #f8f9fa; }
+</style></head><body>
+
+<h1>Tender Intelligence — System Architecture</h1>
+<p style="color:#666">Production deployment on Azure VM. Two data sources, automated nightly pipeline.</p>
+
+<div class="section">
+<h2>Data Sources</h2>
+<div class="diagram">
+  <div class="box source">
+    <span class="tag free">FREE API</span>
+    <h3>Hilma API</h3>
+    <p><strong>hankintailmoitukset.fi</strong></p>
+    <p>REST API, no browser needed</p>
+    <p>149,000+ notices</p>
+    <p>Structured: CPV codes, values, dates</p>
+    <p>Above-threshold tenders</p>
+    <p>Winner names on awards</p>
+    <p class="note">~2 seconds per query</p>
+  </div>
+  <div class="arrow">+</div>
+  <div class="box source">
+    <span class="tag cost">BROWSER AUTOMATION</span>
+    <h3>Tarjouspalvelu.fi</h3>
+    <p><strong>Cloudia Supplier Portal</strong></p>
+    <p>Chrome + Selenium scraping</p>
+    <p>5,000+ tenders across Finland</p>
+    <p>Full documents: 6 detail tabs</p>
+    <p>ZIP attachment downloads</p>
+    <p>Below-threshold tenders</p>
+    <p class="note">~90 seconds for 100 tenders</p>
+  </div>
+  <div class="arrow">→</div>
+  <div class="box process">
+    <h3>Merge & Deduplicate</h3>
+    <p>Match by title + organisation</p>
+    <p>Combine Hilma metadata</p>
+    <p>+ tarjouspalvelu content</p>
+    <p>~260 unique tenders per run</p>
+    <p class="note">39 matched in both sources (test run)</p>
+  </div>
+</div>
+</div>
+
+<div class="section">
+<h2>Processing Pipeline</h2>
+<div class="row">
+  <div class="box process" style="min-width:140px">
+    <h3>Classify</h3>
+    <p>Rule-based</p>
+    <p>open / signal / closed</p>
+    <p class="note">Instant, no AI</p>
+  </div>
+  <div class="arrow">→</div>
+  <div class="box process" style="min-width:140px">
+    <span class="tag cost">OpenAI API</span>
+    <h3>AI Summarize</h3>
+    <p>English summaries</p>
+    <p>Relevance assessment</p>
+    <p>"NOT RELEVANT — Skip"</p>
+    <p class="note">~$0.002/tender</p>
+  </div>
+  <div class="arrow">→</div>
+  <div class="box process" style="min-width:140px">
+    <h3>Three-Tier Route</h3>
+    <p>T1: Product names (auto)</p>
+    <p>T2: Keywords (Excel)</p>
+    <p>T3: Catch-all</p>
+    <p class="note">Instant, configurable</p>
+  </div>
+  <div class="arrow">→</div>
+  <div class="box process" style="min-width:140px">
+    <span class="tag cost">OpenAI API</span>
+    <h3>Award Analysis</h3>
+    <p>Extract winners, prices</p>
+    <p>Build competitor profiles</p>
+    <p>Price intelligence</p>
+    <p class="note">On award results only</p>
+  </div>
+</div>
+</div>
+
+<div class="section">
+<h2>Outputs</h2>
+<div class="diagram">
+  <div class="box output">
+    <h3>Email Notifications</h3>
+    <p>One email per department</p>
+    <p>AI summaries, sorted by relevance</p>
+    <p>CPV codes, estimated values</p>
+    <p>Category badges</p>
+    <p>Multiple recipients per dept</p>
+  </div>
+  <div class="box storage">
+    <h3>SQLite Database</h3>
+    <p>All tender data</p>
+    <p>Award analysis results</p>
+    <p>Competitor profiles</p>
+    <p>Price history by sector</p>
+    <p>Deduplication tracking</p>
+  </div>
+  <div class="box output">
+    <h3>Downloaded Files</h3>
+    <p>ZIP attachments per tender</p>
+    <p>Specs, pricing sheets, docs</p>
+    <p>Stored locally on VM</p>
+  </div>
+  <div class="box future">
+    <span class="tag future">FUTURE</span>
+    <h3>SharePoint</h3>
+    <p>Central document store</p>
+    <p>Accessible to all CGI teams</p>
+    <p>No tarjouspalvelu login needed</p>
+  </div>
+  <div class="box future">
+    <span class="tag future">FUTURE</span>
+    <h3>AI Agents</h3>
+    <p>Read downloaded PDFs</p>
+    <p>Bid/no-bid recommendations</p>
+    <p>Competitive price prediction</p>
+  </div>
+</div>
+</div>
+
+<div class="section">
+<h2>Infrastructure (Azure VM)</h2>
+<table>
+<tr><th>Component</th><th>Detail</th><th>Cost</th></tr>
+<tr><td>VM</td><td>Ubuntu 22.04, B2s (2 vCPU, 4 GB RAM)</td><td>~€30/month</td></tr>
+<tr><td>Virtual Display</td><td>Xvfb — Chrome needs a "screen" (Cloudflare blocks headless)</td><td>Included</td></tr>
+<tr><td>Browser</td><td>Chrome + undetected-chromedriver (Cloudflare bypass)</td><td>Free</td></tr>
+<tr><td>Scheduler</td><td>Cron — runs daily at 06:00</td><td>Free</td></tr>
+<tr><td>Disk</td><td>30 GB SSD (OS + Chrome + tender ZIPs)</td><td>~€5/month</td></tr>
+<tr><td>AI</td><td>OpenAI API (gpt-4o-mini) — summaries + award analysis</td><td>~€20-30/month</td></tr>
+<tr><td>Hilma API</td><td>hankintailmoitukset.fi REST API</td><td>Free</td></tr>
+<tr><td>Email</td><td>CGI SMTP or Microsoft 365 Graph API</td><td>Included in CGI</td></tr>
+<tr><td><strong>Total</strong></td><td></td><td><strong>~€55-65/month</strong></td></tr>
+</table>
+</div>
+
+<div class="section">
+<h2>Technology Stack</h2>
+<table>
+<tr><th>Layer</th><th>Technology</th><th>Why</th></tr>
+<tr><td>Language</td><td>Python 3.12</td><td>Best Selenium support, OpenAI SDK, rapid development</td></tr>
+<tr><td>Browser automation</td><td>undetected-chromedriver + Selenium</td><td>Only tool that bypasses Cloudflare Turnstile (5 alternatives tested)</td></tr>
+<tr><td>Virtual display</td><td>Xvfb</td><td>Chrome can't run headless — Cloudflare detects and blocks it</td></tr>
+<tr><td>Hilma integration</td><td>requests + Azure Search API</td><td>Free REST API, structured data, no browser needed</td></tr>
+<tr><td>AI</td><td>OpenAI API (gpt-4o-mini)</td><td>Best cost/quality for summarization and extraction</td></tr>
+<tr><td>Database</td><td>SQLite</td><td>Zero config, sufficient for hundreds of tenders</td></tr>
+<tr><td>Routing config</td><td>Excel (openpyxl)</td><td>Non-technical users can edit department keywords</td></tr>
+<tr><td>Email</td><td>SMTP (smtplib)</td><td>Standard, works with any mail server</td></tr>
+<tr><td>SSL handling</td><td>NSS cert import for Zscaler</td><td>CGI network intercepts SSL — must install certs in Chrome's NSS db</td></tr>
+</table>
+</div>
+
+</body></html>

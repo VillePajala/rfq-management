@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Tender Intelligence — Production Environment</title>
+<style>
+body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; background: white; max-width: 1300px; }
+h1 { color: #0079c1; border-bottom: 3px solid #0079c1; padding-bottom: 10px; font-size: 24px; }
+h2 { color: #333; font-size: 18px; margin-top: 40px; }
+.env { border: 3px solid #ccc; border-radius: 12px; padding: 20px; margin: 20px 0; position: relative; }
+.env-label { position: absolute; top: -12px; left: 20px; background: white; padding: 0 10px; font-weight: bold; font-size: 14px; }
+.env-azure { border-color: #0079c1; }
+.env-azure .env-label { color: #0079c1; }
+.env-external { border-color: #e67e22; }
+.env-external .env-label { color: #e67e22; }
+.env-cgi { border-color: #2ecc71; }
+.env-cgi .env-label { color: #2ecc71; }
+.env-future { border-color: #999; border-style: dashed; }
+.env-future .env-label { color: #999; }
+
+.components { display: flex; gap: 15px; flex-wrap: wrap; margin: 10px 0; }
+.comp { background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 12px; min-width: 160px; flex: 1; }
+.comp h4 { margin: 0 0 6px 0; font-size: 13px; color: #333; }
+.comp p { margin: 2px 0; font-size: 11px; color: #666; }
+.comp.highlight { background: #e8f4fd; border-color: #0079c1; }
+.comp.storage { background: #f3e5f5; border-color: #9b59b6; }
+.comp.output { background: #e8f5e9; border-color: #2ecc71; }
+
+.connections { margin: 30px 0; }
+.conn { display: flex; align-items: center; margin: 8px 0; padding: 8px 15px; background: #fafafa; border-radius: 6px; }
+.conn-from, .conn-to { font-weight: bold; font-size: 12px; min-width: 200px; }
+.conn-arrow { color: #0079c1; font-size: 18px; margin: 0 15px; }
+.conn-proto { background: #e8f4fd; padding: 2px 8px; border-radius: 3px; font-size: 10px; color: #0079c1; margin: 0 10px; min-width: 80px; text-align: center; }
+.conn-desc { font-size: 11px; color: #666; flex: 1; }
+.conn-freq { font-size: 10px; color: #999; min-width: 80px; text-align: right; }
+
+.schedule { background: #fff3e0; border-radius: 8px; padding: 15px; margin: 15px 0; }
+.schedule h3 { margin: 0 0 8px 0; font-size: 14px; color: #e67e22; }
+.schedule p { margin: 3px 0; font-size: 12px; }
+
+.costs { margin: 20px 0; }
+.costs table { border-collapse: collapse; width: 100%; }
+.costs th { background: #0079c1; color: white; padding: 8px 12px; text-align: left; font-size: 13px; }
+.costs td { border: 1px solid #ddd; padding: 6px 12px; font-size: 12px; }
+.costs tr:nth-child(even) { background: #f8f9fa; }
+.costs .total { font-weight: bold; background: #e8f4fd !important; }
+
+.security { background: #fff8f0; border: 1px solid #e67e22; border-radius: 8px; padding: 15px; margin: 15px 0; }
+.security h3 { color: #e67e22; margin: 0 0 8px 0; font-size: 14px; }
+.security p { font-size: 12px; margin: 3px 0; }
+</style></head><body>
+
+<h1>Tender Intelligence — Production Environment</h1>
+<p style="color:#666">How the system runs in production: infrastructure, connections, data flow, security.</p>
+
+<!-- ═══ AZURE VM ═══ -->
+<div class="env env-azure">
+  <div class="env-label">☁️ AZURE VM (Ubuntu 22.04, B2s: 2 vCPU / 4 GB RAM)</div>
+  
+  <div class="components">
+    <div class="comp highlight">
+      <h4>🕐 Cron Scheduler</h4>
+      <p>Triggers at 06:00 daily</p>
+      <p><code>xvfb-run python demo_scraper.py --mode=combined</code></p>
+    </div>
+    <div class="comp highlight">
+      <h4>🖥️ Xvfb</h4>
+      <p>Virtual display (no monitor)</p>
+      <p>Chrome needs a "screen"</p>
+      <p>Cloudflare blocks headless</p>
+    </div>
+    <div class="comp highlight">
+      <h4>🌐 Chrome Browser</h4>
+      <p>undetected-chromedriver</p>
+      <p>Bypasses Cloudflare Turnstile</p>
+      <p>Selenium automation</p>
+    </div>
+  </div>
+  
+  <div class="components">
+    <div class="comp highlight">
+      <h4>🐍 Python Application</h4>
+      <p>demo_scraper.py — orchestrator</p>
+      <p>hilma.py — API client</p>
+      <p>merge.py — deduplication</p>
+      <p>summarize.py — AI calls</p>
+      <p>routing.py — department matching</p>
+      <p>notify.py — email builder</p>
+      <p>analyze.py — award extraction</p>
+    </div>
+    <div class="comp storage">
+      <h4>💾 SQLite Database</h4>
+      <p>tenders table (all tender data)</p>
+      <p>award_analysis (extracted results)</p>
+      <p>competitors (win/loss profiles)</p>
+      <p>Persists between runs</p>
+    </div>
+    <div class="comp storage">
+      <h4>📁 downloads/</h4>
+      <p>ZIP files per tender</p>
+      <p>Contains: PDFs, Excel, Word</p>
+      <p>Specs, pricing sheets, criteria</p>
+      <p>Uploaded to SharePoint daily</p>
+    </div>
+    <div class="comp">
+      <h4>📋 routing_config.xlsx</h4>
+      <p>Department keywords</p>
+      <p>Contact names + emails</p>
+      <p>Editable by non-technical users</p>
+    </div>
+  </div>
+
+  <div class="security">
+    <h3>🔒 Credentials (stored in .env or Azure Key Vault)</h3>
+    <p>TARJOUSPALVELU_EMAIL + PASSWORD — service account (not personal)</p>
+    <p>OPENAI_API_KEY — for AI summarization and extraction</p>
+    <p>HILMA_API_KEY — for Hilma REST API</p>
+    <p>SMTP credentials — CGI mail server or M365 app registration</p>
+    <p>SHAREPOINT credentials — M365 app registration with Sites.ReadWrite.All</p>
+  </div>
+</div>
+
+<!-- ═══ EXTERNAL SERVICES ═══ -->
+<div class="env env-external">
+  <div class="env-label">🌍 External Services (internet)</div>
+  <div class="components">
+    <div class="comp">
+      <h4>tarjouspalvelu.fi</h4>
+      <p>Cloudia / Mercell</p>
+      <p>Browser scraping via HTTPS</p>
+      <p>SSO login via login.cloudia.net</p>
+      <p>Cloudflare protection</p>
+      <p>Zscaler SSL interception (CGI network)</p>
+    </div>
+    <div class="comp">
+      <h4>api.hankintailmoitukset.fi</h4>
+      <p>Hilma API (Hansel Oy)</p>
+      <p>REST API via HTTPS</p>
+      <p>API key authentication</p>
+      <p>Free, no rate limits issues</p>
+    </div>
+    <div class="comp">
+      <h4>api.openai.com</h4>
+      <p>OpenAI API</p>
+      <p>gpt-4o-mini model</p>
+      <p>Summarization + extraction</p>
+      <p>~$0.002 per tender</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ CGI INTERNAL ═══ -->
+<div class="env env-cgi">
+  <div class="env-label">🏢 CGI Internal Systems</div>
+  <div class="components">
+    <div class="comp output">
+      <h4>📧 Email (Exchange / M365)</h4>
+      <p>Department digest emails</p>
+      <p>Multiple recipients per dept</p>
+      <p>AI summaries, CPV codes, values</p>
+      <p>Links to tarjouspalvelu.fi</p>
+    </div>
+    <div class="comp output">
+      <h4>📂 SharePoint</h4>
+      <p>Central document library</p>
+      <p>Tender ZIPs uploaded daily</p>
+      <p>Folder per tender (by date/org)</p>
+      <p>Accessible to all CGI teams</p>
+      <p>No tarjouspalvelu login needed</p>
+    </div>
+    <div class="comp">
+      <h4>👥 CGI Teams</h4>
+      <p>IT & Software</p>
+      <p>Cybersecurity</p>
+      <p>Consulting</p>
+      <p>Health & Social</p>
+      <p>HR & Payroll</p>
+      <p>Financial Systems</p>
+      <p>+ others from routing config</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FUTURE ═══ -->
+<div class="env env-future">
+  <div class="env-label">🔮 Future Extensions</div>
+  <div class="components">
+    <div class="comp">
+      <h4>🤖 AI Agents</h4>
+      <p>Read downloaded PDFs (multimodal)</p>
+      <p>Extract evaluation criteria + weights</p>
+      <p>Bid/no-bid recommendations</p>
+      <p>Competitive price prediction</p>
+    </div>
+    <div class="comp">
+      <h4>📊 Dashboard</h4>
+      <p>Streamlit or Power BI</p>
+      <p>Competitor win rates</p>
+      <p>Price trends by sector</p>
+      <p>Tender pipeline overview</p>
+    </div>
+    <div class="comp">
+      <h4>🔗 CRM Integration</h4>
+      <p>Auto-create opportunities</p>
+      <p>Track bid decisions</p>
+      <p>Link tenders to projects</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ CONNECTIONS ═══ -->
+<h2>Network Connections</h2>
+<div class="connections">
+  <div class="conn">
+    <span class="conn-from">Azure VM</span>
+    <span class="conn-proto">HTTPS</span>
+    <span class="conn-arrow">→</span>
+    <span class="conn-to">tarjouspalvelu.fi</span>
+    <span class="conn-desc">Chrome browser automation, SSO login, page scraping, ZIP downloads</span>
+    <span class="conn-freq">Daily 06:00</span>
+  </div>
+  <div class="conn">
+    <span class="conn-from">Azure VM</span>
+    <span class="conn-proto">HTTPS REST</span>
+    <span class="conn-arrow">→</span>
+    <span class="conn-to">api.hankintailmoitukset.fi</span>
+    <span class="conn-desc">Hilma API query — search notices by CPV, date, text</span>
+    <span class="conn-freq">Daily 06:00</span>
+  </div>
+  <div class="conn">
+    <span class="conn-from">Azure VM</span>
+    <span class="conn-proto">HTTPS REST</span>
+    <span class="conn-arrow">→</span>
+    <span class="conn-to">api.openai.com</span>
+    <span class="conn-desc">AI summarization (gpt-4o-mini) + award data extraction</span>
+    <span class="conn-freq">Daily 06:00</span>
+  </div>
+  <div class="conn">
+    <span class="conn-from">Azure VM</span>
+    <span class="conn-proto">SMTP / Graph API</span>
+    <span class="conn-arrow">→</span>
+    <span class="conn-to">CGI Mail (Exchange/M365)</span>
+    <span class="conn-desc">Send department digest emails with AI summaries</span>
+    <span class="conn-freq">Daily 06:05</span>
+  </div>
+  <div class="conn">
+    <span class="conn-from">Azure VM</span>
+    <span class="conn-proto">Graph API</span>
+    <span class="conn-arrow">→</span>
+    <span class="conn-to">CGI SharePoint</span>
+    <span class="conn-desc">Upload tender ZIPs + metadata to shared document library</span>
+    <span class="conn-freq">Daily 06:05</span>
+  </div>
+  <div class="conn">
+    <span class="conn-from">Admin (SSH)</span>
+    <span class="conn-proto">SSH port 22</span>
+    <span class="conn-arrow">→</span>
+    <span class="conn-to">Azure VM</span>
+    <span class="conn-desc">Maintenance, config changes, log review, manual runs</span>
+    <span class="conn-freq">As needed</span>
+  </div>
+</div>
+
+<!-- ═══ DAILY SCHEDULE ═══ -->
+<h2>Daily Schedule</h2>
+<div class="schedule">
+  <h3>Nightly Run Timeline</h3>
+  <p><strong>06:00:00</strong> — Cron triggers. Hilma API query (~2 sec).</p>
+  <p><strong>06:00:02</strong> — Chrome launches. Login to tarjouspalvelu.fi (~40 sec).</p>
+  <p><strong>06:00:45</strong> — Scrape listings: 5 pages × 20 tenders (~50 sec).</p>
+  <p><strong>06:01:35</strong> — Detail pages + ZIP downloads for selected tenders (~2 min).</p>
+  <p><strong>06:03:30</strong> — Close browser. Merge Hilma + tarjouspalvelu data.</p>
+  <p><strong>06:03:35</strong> — AI summarize ~100 tenders (~2 min).</p>
+  <p><strong>06:05:30</strong> — Route + send emails (~15 sec).</p>
+  <p><strong>06:05:45</strong> — Award analysis on result tenders (~1 min).</p>
+  <p><strong>06:06:45</strong> — Upload ZIPs to SharePoint (~30 sec).</p>
+  <p><strong>06:07:15</strong> — Done. Total: ~7 minutes.</p>
+</div>
+
+<!-- ═══ COSTS ═══ -->
+<h2>Monthly Costs</h2>
+<div class="costs">
+<table>
+<tr><th>Component</th><th>Service</th><th>Monthly Cost</th><th>Notes</th></tr>
+<tr><td>Compute</td><td>Azure VM B2s (2 vCPU, 4 GB)</td><td>€30</td><td>24/7 running. €2 if auto-deallocated.</td></tr>
+<tr><td>Storage</td><td>30 GB managed SSD</td><td>€5</td><td>OS + Chrome + DB + ZIPs</td></tr>
+<tr><td>AI — Summaries</td><td>OpenAI gpt-4o-mini</td><td>€15-25</td><td>~300 tenders/month × $0.002</td></tr>
+<tr><td>AI — Awards</td><td>OpenAI gpt-4o-mini</td><td>€5-10</td><td>~100 award results/month</td></tr>
+<tr><td>Hilma API</td><td>Hansel Oy</td><td>Free</td><td>No rate limit issues</td></tr>
+<tr><td>Email</td><td>CGI M365</td><td>Included</td><td>Existing CGI infrastructure</td></tr>
+<tr><td>SharePoint</td><td>CGI M365</td><td>Included</td><td>Existing CGI infrastructure</td></tr>
+<tr class="total"><td colspan="2"><strong>Total</strong></td><td><strong>€55-70</strong></td><td>Or €25-40 with auto-deallocate</td></tr>
+</table>
+</div>
+
+</body></html>

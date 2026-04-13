@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Tender Intelligence — Process Flow</title>
+<style>
+body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; background: white; max-width: 1000px; }
+h1 { color: #0079c1; border-bottom: 3px solid #0079c1; padding-bottom: 10px; font-size: 24px; }
+.step { display: flex; margin: 15px 0; align-items: flex-start; }
+.step-num { background: #0079c1; color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px; flex-shrink: 0; margin-right: 15px; margin-top: 5px; }
+.step-content { flex: 1; border-left: 3px solid #e0e0e0; padding: 5px 0 20px 15px; }
+.step-content h3 { margin: 0 0 5px 0; font-size: 15px; color: #333; }
+.step-content p { margin: 3px 0; font-size: 13px; color: #555; }
+.step-content .detail { background: #f8f9fa; padding: 8px 12px; border-radius: 4px; margin: 8px 0; font-size: 12px; }
+.step-content .time { color: #0079c1; font-weight: bold; font-size: 12px; }
+.step-content .tech { color: #e67e22; font-size: 11px; }
+.divider { border-top: 2px dashed #ccc; margin: 25px 0; padding-top: 10px; }
+.divider-label { color: #999; font-size: 12px; font-weight: bold; text-transform: uppercase; }
+</style></head><body>
+
+<h1>Tender Intelligence — Nightly Process Flow</h1>
+<p style="color:#666">Runs automatically at 06:00 via cron on Azure VM</p>
+
+<div class="step">
+  <div class="step-num">1</div>
+  <div class="step-content">
+    <h3>Query Hilma API</h3>
+    <p>Fetch new notices published since last run</p>
+    <p>Filter by CGI-relevant CPV codes: 72 (IT), 48 (software), 79 (consulting), etc.</p>
+    <p>Also search by Finnish IT keywords: tietojärjestelmä, ohjelmisto, digitalisaatio</p>
+    <div class="detail">Result: ~200 structured tenders with CPV codes, estimated values, organisation IDs</div>
+    <p class="time">⏱ ~2 seconds</p>
+    <p class="tech">Tech: requests → api.hankintailmoitukset.fi (REST API)</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">2</div>
+  <div class="step-content">
+    <h3>Launch Chrome + Login to tarjouspalvelu.fi</h3>
+    <p>Open Chrome via Xvfb virtual display</p>
+    <p>Navigate to tarjouspalvelu.fi → Cloudflare auto-resolves</p>
+    <p>Enter email → SSO redirect to Cloudia → Enter password → Login button (ActionChains)</p>
+    <p>Switch UI to Finnish</p>
+    <p>Retry up to 3 times on failure</p>
+    <p class="time">⏱ ~40 seconds</p>
+    <p class="tech">Tech: undetected-chromedriver + Selenium + ActionChains</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">3</div>
+  <div class="step-content">
+    <h3>Apply Search Filters + Scrape Listings</h3>
+    <p>Set ilmoitustyyppi filter: Kilpailu, Suunnittelu, DPS, Kansallinen, Tietopyyntö</p>
+    <p>Search returns ~1,700 tenders across all Finland</p>
+    <p>Scrape 5 pages × 20 tenders = 100 tenders (name, org, type, dates, description)</p>
+    <div class="detail">Result: 100 tenders from tarjouspalvelu.fi listing pages</div>
+    <p class="time">⏱ ~50 seconds</p>
+    <p class="tech">Tech: JavaScript extraction from DOM, pagination via HaeSivu()</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">4</div>
+  <div class="step-content">
+    <h3>Detail Page Scraping (selective)</h3>
+    <p>For selected tenders: click row → detail page opens (session preserved)</p>
+    <p>Click through 6 sidebar tabs: Summary, Publication Docs, Q&A, Terms, Procurement Object, Contacts</p>
+    <p>Collect text from each tab</p>
+    <p>Download all attachments as ZIP (/Zip/TarjousPyynnonLiitteet/{id})</p>
+    <div class="detail">Result: rich content + ZIP files for detail-scraped tenders</div>
+    <p class="time">⏱ ~10 seconds per tender</p>
+    <p class="tech">Tech: ActionChains click (preserves session), sidebar button IDs sidebar0-8</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">5</div>
+  <div class="step-content">
+    <h3>Merge + Deduplicate</h3>
+    <p>Compare 200 Hilma tenders with 100 tarjouspalvelu tenders</p>
+    <p>Match by title + organisation similarity (threshold 75%)</p>
+    <p>Merge: Hilma's CPV codes + estimated values + tarjouspalvelu's full content + attachments</p>
+    <div class="detail">Result: ~260 unique tenders. ~40 matched in both, ~160 Hilma-only, ~60 tarjouspalvelu-only</div>
+    <p class="time">⏱ instant</p>
+    <p class="tech">Tech: SequenceMatcher fuzzy matching</p>
+  </div>
+</div>
+
+<div class="divider"><span class="divider-label">Browser closed — remaining steps are API calls and local processing</span></div>
+
+<div class="step">
+  <div class="step-num">6</div>
+  <div class="step-content">
+    <h3>Classify + Store</h3>
+    <p>Rule-based classification: Kilpailu → open_competition, Suunnittelu → early_signal, Tulokset → closed</p>
+    <p>Handles both Finnish and English type labels</p>
+    <p>Store in SQLite with deduplication (tp_id as key)</p>
+    <div class="detail">Result: all tenders in database with category + status</div>
+    <p class="time">⏱ instant</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">7</div>
+  <div class="step-content">
+    <h3>AI Summarization</h3>
+    <p>Send each tender to OpenAI gpt-4o-mini</p>
+    <p>Prompt includes "CGI DOES / DOES NOT" list — AI knows CGI's domain</p>
+    <p>Returns: What, Who, Relevance, Key dates, Action</p>
+    <p>Marks irrelevant tenders as "NOT RELEVANT — Skip"</p>
+    <p>Uses detail tab text if available (richer), falls back to listing description</p>
+    <div class="detail">Result: English AI summary attached to each tender</div>
+    <p class="time">⏱ ~2 minutes for 50 tenders</p>
+    <p class="tech">Tech: OpenAI API, ~$0.002/tender</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">8</div>
+  <div class="step-content">
+    <h3>Three-Tier Routing</h3>
+    <p><strong>Tier 1A:</strong> CGI own product name found (Aromi, Raindance, Titania...) → CRITICAL</p>
+    <p><strong>Tier 1B:</strong> Partner platform found (SAP, Atlassian, AWS, Oracle...) → HIGH</p>
+    <p><strong>Tier 2:</strong> Department keywords from routing_config.xlsx → email digest</p>
+    <p><strong>Tier 3:</strong> No match → catch-all / General</p>
+    <p>129 product/platform names checked automatically. Keywords use Finnish stem matching.</p>
+    <div class="detail">Result: each tender assigned to 1+ departments</div>
+    <p class="time">⏱ instant</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">9</div>
+  <div class="step-content">
+    <h3>Send Email Notifications</h3>
+    <p>One HTML email per department</p>
+    <p>Tenders sorted: AI-relevant first → NOT RELEVANT last → unsummarized bottom</p>
+    <p>Badges: Competition / Info Request / Detail Page</p>
+    <p>CPV codes and estimated values shown (from Hilma)</p>
+    <p>Multiple recipients per department supported</p>
+    <div class="detail">Result: 3-10 emails sent to department contacts</div>
+    <p class="time">⏱ ~15 seconds</p>
+    <p class="tech">Tech: SMTP (Gmail for demo, CGI mail for production)</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">10</div>
+  <div class="step-content">
+    <h3>Award Analysis (on results tenders)</h3>
+    <p>For closed/awarded tenders: AI extracts winner name, winning price, bidder count, sector</p>
+    <p>Updates competitor profiles: win count, average contract value, sectors</p>
+    <p>Updates price intelligence: contract values by sector</p>
+    <div class="detail">Result: growing competitor + price databases</div>
+    <p class="time">⏱ ~1 minute for 20 awards</p>
+    <p class="tech">Tech: OpenAI API structured extraction</p>
+  </div>
+</div>
+
+<p style="color:#999; margin-top:30px; font-size:12px; border-top:1px solid #ddd; padding-top:10px;">
+Total nightly run: ~5-7 minutes. Cost: ~€0.20-0.50 per run (AI only). All data persisted in SQLite + downloaded ZIPs.
+</p>
+
+</body></html>
