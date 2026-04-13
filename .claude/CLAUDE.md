@@ -259,6 +259,63 @@ rm -f tenders.db
 - **CGI stakeholder** — TBD, from the section responsible for tender collection
 - **Ville Pajala** — developer building this PoC
 
+## Production Deployment (Option 1: Azure VM)
+
+Target: single Azure VM running nightly scheduled scrapes.
+
+**Infrastructure:**
+```
+Azure VM (Ubuntu 22.04 LTS, B2s: 2 vCPU, 4 GB RAM)
+├── Xvfb (virtual display — Chrome can't run headless, Cloudflare blocks it)
+├── Python 3.12 + Chrome + undetected-chromedriver
+├── Cron: runs --mode=combined at 06:00 daily
+├── SQLite database (local, sufficient for hundreds of tenders)
+├── downloads/ folder for tender attachment ZIPs
+└── Outputs:
+    ├── SharePoint (via Microsoft Graph API) — ZIPs + structured data
+    ├── CGI SMTP / Microsoft 365 — email notifications
+    └── Optionally: Azure SQL if dashboard needed
+```
+
+**Monthly cost estimate (personal Azure account):**
+
+| Item | Cost |
+|---|---|
+| VM B2s (24/7) | ~€30 |
+| Disk 30 GB SSD | ~€5 |
+| OpenAI API (300 tenders, gpt-4o-mini) | ~€20-30 |
+| Hilma API | Free |
+| Network / data transfer | ~€1 |
+| **Total** | **~€55-65/month** |
+
+Note: if VM is deallocated after each run (~10 min/day), compute drops to ~€1-2/month. Total ~€25-35/month. Azure free tier gives €200 credit for first month (covers 3-5 months of testing).
+
+**Setup steps:**
+1. Create Azure VM (Ubuntu 22.04, B2s, allow SSH)
+2. Install: `apt install python3 python3-venv xvfb chromium-browser`
+3. Clone repo: `git clone https://github.com/VillePajala/rfq-management.git`
+4. Create venv, install deps: `pip install -r requirements.txt`
+5. Copy `.env` with production credentials (service account, CGI SMTP)
+6. Install Zscaler certs into Chrome NSS database (if on CGI network)
+7. Test: `xvfb-run python demo_scraper.py --mode=combined`
+8. Add cron: `0 6 * * * cd /home/user/rfq-management && xvfb-run python demo_scraper.py --mode=combined`
+
+**What CGI needs to provide:**
+- Azure subscription (or approval to use personal)
+- Service account for tarjouspalvelu.fi
+- CGI SMTP server details (or M365 app registration for Graph API mail)
+- SharePoint site/library for document storage
+- Department contacts + emails for routing (real ones, not test)
+- Procurement categories and CPV codes for filtering
+- Security review: credential storage, data handling
+
+**What's missing before production:**
+- `requirements.txt` (not yet generated)
+- SharePoint upload module
+- CGI SMTP / M365 mail integration
+- Proper logging and error alerting (email on failure)
+- Health monitoring (did the nightly run succeed?)
+
 ## Future Ideas
 
 **Two-pass selective detail scraping:** Instead of detail-scraping all tenders (slow) or a fixed count (random), use a two-pass approach: (1) scrape all listings and AI-summarize from short descriptions, (2) filter to relevant-only based on AI verdict, (3) go back and detail-scrape only those, (4) re-summarize with richer data. This would mean ~15 detail pages instead of 100. Prerequisite: AI relevance classification must be reliable enough — a false negative means missing a good tender's detail data. The per-page architecture already supports this; the main work is keeping the browser open between passes and paginating back to find specific tenders by tp_id.
