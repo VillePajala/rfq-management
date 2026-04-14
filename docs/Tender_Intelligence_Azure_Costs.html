@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Tender Intelligence — Full Azure Cost Comparison</title>
+<style>
+body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; background: white; max-width: 1000px; }
+h1 { color: #0079c1; border-bottom: 3px solid #0079c1; padding-bottom: 10px; font-size: 22px; }
+h2 { color: #333; font-size: 17px; margin-top: 30px; }
+table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+th { background: #0079c1; color: white; padding: 8px 12px; text-align: left; font-size: 13px; }
+td { border: 1px solid #ddd; padding: 6px 12px; font-size: 12px; }
+tr:nth-child(even) { background: #f8f9fa; }
+.total { font-weight: bold; background: #e8f4fd !important; font-size: 13px; }
+.note { font-size: 11px; color: #888; font-style: italic; }
+.vs { display: flex; gap: 30px; margin: 20px 0; }
+.vs-col { flex: 1; border: 2px solid #ddd; border-radius: 8px; padding: 15px; }
+.vs-col.simple { border-color: #2ecc71; }
+.vs-col.full { border-color: #0079c1; }
+.vs-col h3 { margin: 0 0 10px 0; font-size: 15px; }
+.vs-col.simple h3 { color: #2ecc71; }
+.vs-col.full h3 { color: #0079c1; }
+.verdict { background: #e8f5e9; border: 2px solid #2ecc71; border-radius: 8px; padding: 15px; margin: 20px 0; }
+.verdict h3 { color: #2ecc71; margin: 0 0 8px 0; }
+</style></head><body>
+
+<h1>Cost Comparison: VM-only vs Full Azure Services</h1>
+
+<div class="vs">
+<div class="vs-col simple">
+<h3>Option A: Single VM (recommended)</h3>
+<table>
+<tr><th>Component</th><th>Azure Service</th><th>Monthly</th></tr>
+<tr><td>Compute</td><td>VM B2s (2 vCPU, 4 GB)</td><td>€30</td></tr>
+<tr><td>Disk</td><td>30 GB managed SSD</td><td>€5</td></tr>
+<tr><td>AI</td><td>Azure OpenAI (gpt-4o-mini)</td><td>€25</td></tr>
+<tr><td>Database</td><td>SQLite (on VM disk)</td><td>€0</td></tr>
+<tr><td>File storage</td><td>VM local disk</td><td>€0</td></tr>
+<tr><td>Scheduler</td><td>Cron (on VM)</td><td>€0</td></tr>
+<tr><td>Secrets</td><td>.env file (on VM)</td><td>€0</td></tr>
+<tr><td>Monitoring</td><td>Manual / logs</td><td>€0</td></tr>
+<tr><td>Email</td><td>CGI M365 (existing)</td><td>€0</td></tr>
+<tr><td>Hilma API</td><td>Free</td><td>€0</td></tr>
+<tr class="total"><td colspan="2">Total</td><td>~€60/month</td></tr>
+</table>
+</div>
+
+<div class="vs-col full">
+<h3>Option B: Full Azure Services</h3>
+<table>
+<tr><th>Component</th><th>Azure Service</th><th>Monthly</th></tr>
+<tr><td>Compute (browser)</td><td>VM B2s (still needed)</td><td>€30</td></tr>
+<tr><td>Disk</td><td>30 GB managed SSD</td><td>€5</td></tr>
+<tr><td>AI</td><td>Azure OpenAI (gpt-4o-mini)</td><td>€25</td></tr>
+<tr><td>Database</td><td>Azure SQL Basic (2 GB)</td><td>€5</td></tr>
+<tr><td></td><td>Azure SQL S0 (250 GB, if needed)</td><td>€15</td></tr>
+<tr><td>File storage</td><td>Azure Blob Storage (10 GB ZIPs)</td><td>€1</td></tr>
+<tr><td>Scheduler</td><td>Azure Logic Apps (1 run/day)</td><td>€1</td></tr>
+<tr><td>Secrets</td><td>Azure Key Vault</td><td>€1</td></tr>
+<tr><td>Monitoring</td><td>Azure Monitor + App Insights</td><td>€5-10</td></tr>
+<tr><td>Email</td><td>Azure Communication Services</td><td>€2</td></tr>
+<tr><td></td><td>OR CGI M365 (existing)</td><td>€0</td></tr>
+<tr><td>Hilma API</td><td>Free</td><td>€0</td></tr>
+<tr class="total"><td colspan="2">Total</td><td>~€85-95/month</td></tr>
+</table>
+</div>
+</div>
+
+<h2>Detailed Azure Service Pricing</h2>
+
+<table>
+<tr><th>Service</th><th>Tier</th><th>What you get</th><th>Price</th><th>Need it?</th></tr>
+<tr><td>Azure VM B2s</td><td>Pay-as-you-go</td><td>2 vCPU, 4 GB RAM, Linux</td><td>€30/mo</td><td>YES — Chrome needs a VM, no way around it</td></tr>
+<tr><td>Azure VM B1s</td><td>Pay-as-you-go</td><td>1 vCPU, 1 GB RAM, Linux</td><td>€7/mo</td><td>MAYBE — risky, Chrome may crash with 1 GB</td></tr>
+<tr><td>Azure SQL</td><td>Basic (5 DTU, 2 GB)</td><td>Relational database</td><td>€5/mo</td><td>NO — SQLite works fine for this scale</td></tr>
+<tr><td>Azure SQL</td><td>S0 (10 DTU, 250 GB)</td><td>Larger database</td><td>€15/mo</td><td>NO — we have hundreds of rows, not millions</td></tr>
+<tr><td>Azure Cosmos DB</td><td>Serverless</td><td>NoSQL, pay-per-request</td><td>€1-5/mo</td><td>NO — overkill, SQLite is simpler</td></tr>
+<tr><td>Azure Blob Storage</td><td>Hot tier</td><td>File storage for ZIPs</td><td>€0.02/GB</td><td>MAYBE — useful if sharing files externally</td></tr>
+<tr><td>Azure Key Vault</td><td>Standard</td><td>Secrets management</td><td>€0.03/10k ops</td><td>MAYBE — if security review requires it</td></tr>
+<tr><td>Azure Monitor</td><td>Basic</td><td>Logs, metrics, alerts</td><td>€5-10/mo</td><td>NICE — alerts if nightly run fails</td></tr>
+<tr><td>Azure Logic Apps</td><td>Consumption</td><td>Workflow triggers</td><td>€0.001/action</td><td>NO — cron does the same thing free</td></tr>
+<tr><td>Azure Communication Services</td><td>Pay-per-use</td><td>Email sending</td><td>€0.00025/email</td><td>NO — CGI M365 is free for internal mail</td></tr>
+<tr><td>Azure OpenAI</td><td>Pay-per-token</td><td>Same as OpenAI, EU data residency</td><td>Same as OpenAI</td><td>YES — compliance, data stays in EU</td></tr>
+<tr><td>Azure Functions</td><td>Consumption</td><td>Serverless compute</td><td>€0.20/M executions</td><td>NO — can't run Chrome in Functions</td></tr>
+<tr><td>Azure Container Instances</td><td>Pay-per-second</td><td>Run containers on demand</td><td>€0.04/hour</td><td>MAYBE — alternative to VM, ~€1.20/mo for 1 run/day</td></tr>
+</table>
+
+<div class="verdict">
+<h3>Verdict</h3>
+<p><strong>The VM is the floor.</strong> You need it for Chrome. Once you have a VM, everything else can run on it for free (SQLite, cron, .env, local files).</p>
+<p><strong>Azure-native services add €25-35/month</strong> for marginal benefits at this scale. Azure SQL, Blob Storage, Key Vault, Monitor — none of these solve a problem you actually have with 300 tenders/day on a single VM.</p>
+<p><strong>The only Azure service worth adding:</strong> Azure OpenAI (compliance + EU data residency) and Azure Monitor (know when it breaks). That's ~€5-10 extra on top of the VM.</p>
+<p><strong>Total recommendation: €60-70/month.</strong> VM + Azure OpenAI + basic monitoring. Add other services only when a specific need arises (multi-user database, external file sharing, security audit requirements).</p>
+</div>
+
+<h2>When to upgrade from VM to Azure services</h2>
+<table>
+<tr><th>Trigger</th><th>Add this service</th><th>Cost impact</th></tr>
+<tr><td>Multiple people need to query tender data</td><td>Azure SQL (replace SQLite)</td><td>+€5-15/mo</td></tr>
+<tr><td>Share ZIPs without SharePoint</td><td>Azure Blob Storage + SAS tokens</td><td>+€1/mo</td></tr>
+<tr><td>Security audit requires managed secrets</td><td>Azure Key Vault</td><td>+€1/mo</td></tr>
+<tr><td>"Why didn't it run last night?"</td><td>Azure Monitor + email alerts</td><td>+€5-10/mo</td></tr>
+<tr><td>Dashboard for management</td><td>Power BI (CGI likely has licenses)</td><td>€0 (existing)</td></tr>
+<tr><td>AI agents reading PDFs</td><td>Azure OpenAI GPT-4o</td><td>+€20-50/mo</td></tr>
+<tr><td>Run without a VM entirely</td><td>Not possible (Cloudflare blocks headless)</td><td>N/A</td></tr>
+</table>
+
+</body></html>
