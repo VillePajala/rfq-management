@@ -147,74 +147,81 @@ Unified Python stack — no separate RPA tool needed since all targets are web-b
 
 ## Known Risks & Open Questions
 
-### Cloudflare Bot Protection on tarjouspalvelu.fi (SOLVED)
-tarjouspalvelu.fi uses Cloudflare Turnstile CAPTCHA. This affects ALL automation tools equally (Playwright, UiPath, Selenium).
+_Last updated: 2026-04-21 after headless viability testing and Riku Turkia's clarification on draft creation._
 
-**What we tested:**
-| Approach | Cloudflare result |
-|----------|------------------|
-| Playwright headless | Fully blocked |
-| Playwright non-headless | CAPTCHA checkbox shown, does NOT auto-resolve |
-| Playwright non-headless + stealth patches | Same — checkbox shown |
-| Playwright with system Chrome (`channel="chrome"`) | Same — checkbox shown |
-| **undetected-chromedriver** | **CAPTCHA auto-resolves — site loads successfully** |
+### Resolved
 
-**Solution:** `undetected-chromedriver` patches Chrome binary to remove all automation indicators. Turnstile auto-resolves without human interaction.
+| Topic | Resolution |
+|---|---|
+| **Cloudflare Turnstile** | `undetected-chromedriver` patches out automation indicators; Turnstile auto-resolves without human interaction. Works both with a visible window and with Chrome `--headless=new` (verified 2026-04-21). |
+| **Zscaler SSL** | Import Zscaler certs into Chrome NSS database (see setup script in this file). Not needed outside the CGI network. |
+| **Login** | Cloudia SSO via `login.cloudia.net`. The final redirect from `/Authentication/ExternalLogin` to `/Default/Index` sometimes stalls — the scraper waits up to 45s and then force-navigates to `/Default/Index`, which succeeds. Works in both visible and headless modes. Account: `ville.pajala@cgi.com`. |
+| **Headless feasibility** | `--headless=new` produces the same listings output as visible mode (verified: both yield 1,612 search results, same classification, same Tier 1B routing matches). See `test_headless.py` and `test_anonymous.py`. |
+| **No public API** | Confirmed by Riku Turkia (2026-04-21): tarjouspalvelu.fi has no supported API. All automation must use browser UI. |
 
-**Requirements:**
-- Google Chrome installed (`google-chrome-stable`)
-- GUI/display environment (headless servers need Xvfb)
+### Active risks
 
-### Corporate SSL Proxy (Zscaler) (SOLVED)
-CGI uses Zscaler which re-signs SSL certificates. Linux Chrome doesn't trust the Zscaler root CA by default.
+**1. Draft creation on tender open (BY DESIGN)**
+When a logged-in user opens a tender via `/UX/TP/SiirryTarjouspyyntoon?tpId=X`, Cloudia automatically creates an offer draft (`Tarjous`) or response draft (`Vastaus`) in the user's account. Riku confirmed 2026-04-21: _"It's used to track who has reviewed the tender request."_ This is not a bug — it's a supplier-tracking feature. We cannot bypass it while logged in. Consequences:
+- Each opened tender becomes an empty draft visible to the procurement organisation
+- Each draft triggers an email-notification subscription to the tender (document updates, Q&A, deadlines)
+- Accumulated drafts clutter the `Keskeneräiset` list for all CGI users of the account
 
-**Solution:** Import Zscaler certs into Chrome's NSS database:
-```bash
-sudo apt-get install -y libnss3-tools
-echo | openssl s_client -connect tarjouspalvelu.fi:443 -servername tarjouspalvelu.fi -showcerts 2>/dev/null \
-  | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' > /tmp/zscaler_chain.pem
-mkdir -p ~/.pki/nssdb
-certutil -d sql:$HOME/.pki/nssdb -A -t "CT,C,C" -n "Zscaler Root CA" -i /tmp/zscaler_chain.pem
-```
-Note: production deployments outside the corporate proxy would not need this.
+**2. Draft backlog from prior test runs**
+Past visible and headless runs opened tenders while logged in and therefore created drafts. These need a manual sweep in Cloudia under *Tarjoukset → Keskeneräiset*, filtered by `Aloittaja = Ville Pajala` in the 2026-04-21 10:58–11:42 window (today's test runs) plus any earlier dates from previous demos.
 
-### tarjouspalvelu.fi Login (PENDING)
-Full tender details (estimated value, qualification requirements, attachments) require a logged-in account. CGI is already registered on the platform — an admin needs to create a user account. Registration was submitted, waiting for admin approval.
+**3. Login redirect is fragile**
+The scraper papers over an incomplete SSO redirect with a force-navigate fallback. If Cloudia changes the SSO flow, the fallback may also fail. Separately, the scraper uses ~25 hardcoded `time.sleep()` calls in other places; ~9 of those wait blindly for async events and should be converted to `WebDriverWait` conditions over time.
+
+**4. Azure datacenter IP reputation — untested**
+All testing so far has been from a Finnish residential IP (via WSL). Cloudflare challenges datacenter IPs more aggressively. Before committing to an Azure container deployment, we need to run the same tests from an Azure VM to confirm Turnstile still auto-resolves.
+
+**5. Detail access needs a policy decision**
+Anonymous users see: reference number, title, type, organisation, published/deadline dates, and full description (~1–2 KB of Finnish procurement text). Anonymous users do NOT see: publication documents, Q&A, attachments, or the tabbed edit-view. To access attachments + full detail, login is required — which creates a draft. See Decisions Needed #1 below.
+
+### Decisions needed from CGI stakeholders
+
+_Each item is framed as a concrete choice so we can get answers quickly._
+
+| # | Decision | Option A | Option B |
+|---|---|---|---|
+| 1 | **How do we access tender details?** | **Anonymous-only** for routing/AI/email. Skip ZIP attachments entirely. No drafts ever created. | **Hybrid:** anonymous for bulk scraping; log in selectively for the 5–15 highest-priority tenders per day to download ZIPs. Accept drafts as cost. |
+| 2 | **Do we delete drafts we create?** | **Yes, UI-automated:** after scraping, click "Poista tarjous" to remove. Keeps account clean. _Risk: "started and withdrew" may look unprofessional to procurement orgs._ | **No, keep them:** each draft legitimately represents real CGI interest, which is Cloudia's intended signal. Accept notification volume. |
+| 3 | **Scope of tenders we monitor** | **All Finland** via `/Default/Index` global search (current default, 1,612 tenders/day). | **Targeted subset** — specific CPV codes, specific orgs, specific procurement categories. |
+| 4 | **Below-threshold tender coverage** | **Skip them** — Hilma only (above-threshold only). | **Cover them** — requires tarjouspalvelu (below-threshold tenders are often published only there). |
+| 5 | **Deployment target** | **Azure VM** with cron + Xvfb (original plan; proven reliable; ~€60/month). | **Azure Container Apps Jobs** (cheaper ~€10–15/month; requires Azure-IP Cloudflare test to pass). |
+| 6 | **Production email infrastructure** | **CGI M365 SMTP relay** (standard). | **Microsoft Graph API** (modern, supports per-message audit). |
+| 7 | **Service account** | **Dedicated account** created for this scraper (recommended; avoids polluting Ville's personal profile). | **Continue on Ville's account** (unsafe long-term). |
 
 ### Questions for SMEs (Riku Turkia and CGI stakeholders)
 
-**Scope & Coverage:**
+**Answered:**
+- ~~Q12: Does logged-in session bypass Cloudflare?~~ → Yes, but Cloudflare wasn't the primary blocker; draft creation is the real issue.
+- ~~Q13: Data feed / API?~~ → No API (Riku, 2026-04-21).
+
+**Still open — scope & coverage:**
 1. Which public sector organizations should we monitor? All of Finland, or specific ones?
-   - Currently we scrape one org at a time (e.g. Helsinki = 191 tenders)
-   - tarjouspalvelu.fi has a cross-org search at `/Default/Index` — could we use that instead of scraping org by org?
-   - The Organisations listing page on tarjouspalvelu.fi is broken (server error) — is there another way to get the full list of orgs?
 2. Which below-threshold tenders are published only on tarjouspalvelu.fi and not on Hilma?
-3. Are there other platforms besides tarjouspalvelu.fi and Hilma that CGI should monitor? (e.g. Hanki, other eTendering systems)
-4. Should we also monitor Hilma via its API for completeness, or is tarjouspalvelu.fi sufficient?
+3. Are there other platforms besides tarjouspalvelu.fi and Hilma that CGI should monitor?
 
-**Filtering & Relevance:**
-5. What types of tenders is CGI actually interested in? (IT only? Consulting? All sectors?)
-6. Are there minimum contract values below which CGI wouldn't bid?
-7. Should we filter by geographic region or is all of Finland relevant?
-8. How should we handle Dynamic Purchasing Systems (DPS) — are these relevant to CGI?
+**Still open — filtering & relevance:**
+4. What types of tenders is CGI actually interested in? (IT only? Consulting? All sectors?)
+5. Are there minimum contract values below which CGI wouldn't bid?
+6. Should we filter by geographic region or is all of Finland relevant?
+7. How should we handle Dynamic Purchasing Systems (DPS)?
 
-**Routing & Notifications:**
-9. Who are the actual CGI department contacts that should receive tender notifications?
-10. How should tenders be categorized for routing? By sector? By CGI business unit? By contract type?
-11. How often should notifications be sent — real-time, daily digest, weekly?
+**Still open — routing & notifications:**
+8. Who are the actual CGI department contacts that should receive tender notifications?
+9. How should tenders be categorized for routing?
+10. Notification cadence — real-time, daily digest, weekly?
 
-**Platform Access:**
-12. Does a logged-in tarjouspalvelu.fi session bypass Cloudflare entirely?
-13. Does tarjouspalvelu.fi offer any data feed, export, or API for registered customers?
-14. Can we get a tarjouspalvelu.fi account approved? (registration submitted, waiting for CGI admin)
+**Still open — platform access:**
+11. Does the Cloudia procurement organisation see a visible record when we open-then-delete a draft? (informs Decision #2 above)
+12. Is it acceptable to run this automation at the scale of ~1,600 opens/day anonymously? Does Cloudia consider that abusive even without account load?
 
-**Competitor Intelligence:**
-15. Who are CGI's main competitors in Finnish public procurement?
-16. What competitor information would be most valuable — win rates, pricing patterns, sector focus?
-
-**Deployment:**
-17. Where should this run in production? CGI's Azure? On-premise server? Developer workstation?
-18. Does CGI have a preferred email system for automated notifications (SMTP relay, Microsoft 365, etc.)?
+**Still open — competitor intelligence:**
+13. Who are CGI's main competitors in Finnish public procurement?
+14. What competitor information would be most valuable?
 
 ## Project Context
 

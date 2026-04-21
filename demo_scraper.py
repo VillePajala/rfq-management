@@ -17,6 +17,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import TimeoutException
 
 # Load credentials from .env (never hardcoded, never sent to cloud)
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -59,15 +60,24 @@ def log_step(step: int, msg: str):
 
 
 def create_driver() -> uc.Chrome:
+    headless = os.getenv("HEADLESS", "0") == "1"
     options = uc.ChromeOptions()
     options.add_argument("--no-sandbox")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--lang=fi-FI")
+    if headless:
+        options.add_argument("--headless=new")
+        options.add_argument("--disable-gpu")
     # Set download directory for ZIP attachments
     os.makedirs(DOWNLOADS_DIR, exist_ok=True)
     prefs = {"download.default_directory": DOWNLOADS_DIR, "download.prompt_for_download": False}
     options.add_experimental_option("prefs", prefs)
-    return uc.Chrome(options=options, user_data_dir=PROFILE_DIR)
+    profile_dir = os.getenv("CHROME_PROFILE_DIR", PROFILE_DIR)
+    if headless and profile_dir == PROFILE_DIR:
+        # Avoid collision with the visible profile when both run in sequence
+        profile_dir = PROFILE_DIR + "_headless"
+    log(f"Chrome mode: {'HEADLESS=new' if headless else 'VISIBLE'} | profile: {os.path.basename(profile_dir)}")
+    return uc.Chrome(options=options, user_data_dir=profile_dir)
 
 
 def wait_for_cloudflare(driver, timeout=60) -> bool:
@@ -179,14 +189,31 @@ def login(driver) -> bool:
         continue_btn = driver.find_element(By.ID, "continue")
         driver.execute_script("arguments[0].click();", continue_btn)
         log("'Log in' (SSO) clicked — waiting for redirect to Cloudia Services...")
-        time.sleep(10)
+
+        # Smart wait: poll for either the Cloudia URL + the #username form field
+        # to appear, or timeout. Better than a fixed 10s sleep because Vaadin
+        # apps can take 5-25s to render depending on network/load.
+        sso_deadline = time.time() + 45
+        sso_last_heartbeat = time.time()
+        cloudia_ready = False
+        while time.time() < sso_deadline:
+            url_now = driver.current_url
+            on_cloudia = "login.cloudia.net" in url_now or "cloudia" in url_now.lower()
+            if on_cloudia and driver.find_elements(By.ID, "username"):
+                cloudia_ready = True
+                break
+            if time.time() - sso_last_heartbeat >= 10:
+                remaining = int(sso_deadline - time.time())
+                has_username = bool(driver.find_elements(By.ID, "username"))
+                log(f"  ...waiting for Cloudia login page ({remaining}s remaining). URL: {url_now}, username-field: {has_username}")
+                sso_last_heartbeat = time.time()
+            time.sleep(0.5)
 
         # Step 2: Should now be on Cloudia Services login page
         log(f"Step 2: Redirected to: {driver.current_url}")
         driver.save_screenshot("screenshot_cloudia_login.png")
-        page_source = driver.page_source
 
-        if "Cloudia" in page_source and ("Login to" in page_source or "Salasana" in page_source):
+        if cloudia_ready:
             log("On Cloudia Services login page (Vaadin app) — entering credentials...")
 
             # Username: input#username (Vaadin text field) — may be pre-filled from URL
@@ -226,8 +253,48 @@ def login(driver) -> bool:
 
 
 
-            log("Waiting for redirect back to tarjouspalvelu.fi...")
-            time.sleep(10)
+            log("Waiting for redirect back to tarjouspalvelu.fi/Default/Index...")
+            # Manual poll loop so we emit a heartbeat log every ~10s, instead
+            # of sitting silently inside WebDriverWait for up to 45s.
+            redirect_deadline = time.time() + 45
+            redirect_completed = False
+            last_heartbeat = time.time()
+            while time.time() < redirect_deadline:
+                if "/Default/Index" in driver.current_url:
+                    redirect_completed = True
+                    log(f"Redirect chain completed. URL: {driver.current_url}")
+                    break
+                if time.time() - last_heartbeat >= 10:
+                    remaining = int(redirect_deadline - time.time())
+                    log(f"  ...still waiting for redirect ({remaining}s remaining). Current URL: {driver.current_url}")
+                    last_heartbeat = time.time()
+                time.sleep(0.5)
+
+            if not redirect_completed:
+                # Redirect didn't happen client-side. Two possibilities:
+                #   (a) Auth succeeded server-side but the final redirect JS didn't fire (common headless issue)
+                #   (b) Auth is genuinely failing (server waiting on a check we didn't pass)
+                # Dump diagnostics, then try force-navigating to /Default/Index to find out which.
+                log(f"Timeout at: {driver.current_url}")
+                try:
+                    cookies = driver.get_cookies()
+                    cookie_names = sorted(c.get("name", "") for c in cookies)
+                    log(f"Cookies ({len(cookies)}): {cookie_names}")
+                    with open("page_source_login_stuck.html", "w", encoding="utf-8") as f:
+                        f.write(driver.page_source or "")
+                    log(f"Stuck page source size: {len(driver.page_source or '')} bytes "
+                        "(saved to page_source_login_stuck.html)")
+                except Exception as e:
+                    log(f"Could not collect diagnostics: {e}")
+                log("Attempting force-navigate to /Default/Index to see if session carries...")
+                try:
+                    driver.get("https://tarjouspalvelu.fi/Default/Index")
+                    WebDriverWait(driver, 20).until(
+                        lambda d: "/Default/Index" in d.current_url
+                    )
+                    log(f"Force-navigate landed on: {driver.current_url}")
+                except TimeoutException:
+                    log(f"Force-navigate also failed. URL: {driver.current_url}")
         else:
             log("Did not reach Cloudia Services login page.")
             driver.save_screenshot("screenshot_login_unexpected.png")
@@ -330,8 +397,8 @@ def navigate_to_publications(driver, org_id: str, mode: str = "tenders") -> bool
         # Apply notice type filters
         apply_search_filters(driver, mode)
 
-        # Pause for demo after filters are visible
-        if os.getenv("DEMO_PAUSE", "0") == "1":
+        # Pause for demo after filters are visible (skipped in headless)
+        if os.getenv("DEMO_PAUSE", "0") == "1" and os.getenv("HEADLESS", "0") != "1":
             input("\n  ⏸  DEMO PAUSE — Filters applied. Press Enter to search...\n")
 
         # Set 50 results per page and search
@@ -457,6 +524,25 @@ DETAIL_TABS = [
 ]
 
 
+def _return_to_listings(driver, listings_url: str):
+    """Reliably return to the listings page after a detail scrape.
+
+    Cloudia's detail flow uses JS-driven navigation, so driver.back() leaves
+    us on intermediate redirect URLs rather than the listings. Direct
+    navigation + wait for tp-list__row rows is deterministic.
+    """
+    try:
+        driver.get(listings_url)
+        try:
+            WebDriverWait(driver, 15).until(
+                lambda d: d.find_elements(By.CSS_SELECTOR, "a.tp-list__row")
+            )
+        except TimeoutException:
+            log(f"    Listings did not reload within 15s. URL: {driver.current_url}")
+    except Exception as e:
+        log(f"    _return_to_listings error: {type(e).__name__}: {e}")
+
+
 def scrape_detail_page(driver, tender: dict) -> bool:
     """Scrape a single detail page by clicking its row from the current listings page.
 
@@ -467,8 +553,19 @@ def scrape_detail_page(driver, tender: dict) -> bool:
     if not tp_id:
         return False
 
+    # NOTE: Opening a tender while logged in creates a draft response/offer
+    # in Cloudia by design. This is intentional supplier-tracking behavior
+    # confirmed by Riku Turkia (2026-04-21). We accept the drafts and plan
+    # separate hygiene later (manual cleanup during debug; programmatic
+    # UI-click "Poista tarjous" after bid/no-bid decision in production).
     try:
-        # Find the tender row on the current page and click it
+        # Remember the listings URL so we can reliably return after the detail
+        # scrape. driver.back() is flaky with Cloudia's JS-driven navigation
+        # (history stack doesn't match visual navigation).
+        listings_url = driver.current_url
+        log(f"  → scrape_detail_page(tp_id={tp_id}) starting. URL: {listings_url}")
+
+        # Step 1: Find and click the tender row
         rows = driver.find_elements(By.CSS_SELECTOR, "a.tp-list__row")
         clicked = False
         for row in rows:
@@ -479,24 +576,114 @@ def scrape_detail_page(driver, tender: dict) -> bool:
                 break
 
         if not clicked:
+            log(f"  Row for tp_id={tp_id} not found on current page.")
             return False
 
-        time.sleep(5)
+        # Step 2: Wait for navigation away from the listings
+        listings_url = driver.current_url
+        try:
+            WebDriverWait(driver, 20).until(
+                lambda d: "Default/Index" not in d.current_url or "tpId=" in d.current_url
+            )
+        except TimeoutException:
+            pass
+        time.sleep(2)
+        log(f"  After row click, URL: {driver.current_url}")
 
-        # Check if we got full access (logged-in detail page)
+        # Step 3: If we landed on the response/offer list intermediate page,
+        # click into the existing draft to reach EditoiTarjousta. The page
+        # shows a single draft row (the one just created) plus a "Tee uusi
+        # tarjous/vastaus" button we must NOT click (that creates ANOTHER draft).
+        page_text = ""
+        try:
+            page_text = driver.find_element(By.TAG_NAME, "body").text
+        except Exception:
+            pass
+
+        on_response_list = (
+            "EditoiTarjousta" not in driver.current_url
+            and ("Tee uusi tarjous" in page_text or "Tee uusi vastaus" in page_text
+                 or "Create new tender" in page_text or "Create new response" in page_text)
+        )
+
+        if on_response_list:
+            log("  Landed on response-list page. Opening auto-created draft...")
+            # Save HTML once per session for diagnosis if we get stuck
+            if not os.path.exists("page_html_response_list.html"):
+                try:
+                    with open("page_html_response_list.html", "w", encoding="utf-8") as f:
+                        f.write(driver.page_source)
+                    log("  Saved page source: page_html_response_list.html")
+                except Exception:
+                    pass
+
+            # Step 1: Open the dropdown menu ("Avaa tarjouksen valikko" toggle)
+            toggled = driver.execute_script("""
+                const els = Array.from(document.querySelectorAll('a, button, [role=button], [onclick]'));
+                const toggle = els.find(el => {
+                    const t = (el.textContent || '').trim().toLowerCase();
+                    return t.includes('avaa tarjouksen valikko') || t.includes('open the tender menu');
+                });
+                if (toggle) { toggle.click(); return toggle.textContent.trim(); }
+                return null;
+            """)
+            log(f"  Menu toggle clicked: {toggled!r}")
+            time.sleep(1)
+
+            # Step 2: Click the "Avaa" (Open) item inside the now-open dropdown.
+            # Explicitly exclude "Tee uusi" (creates new), "Poista" (delete),
+            # "Takaisin" (back), "Avaa PDF" (downloads PDF, stays on same URL).
+            opened = driver.execute_script("""
+                const els = Array.from(document.querySelectorAll('a, button, li, [role=menuitem], [onclick]'));
+                const safe = els.filter(el => {
+                    // only visible elements
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width === 0 || rect.height === 0) return false;
+                    const t = (el.textContent || '').trim().toLowerCase();
+                    if (!t) return false;
+                    if (t.includes('tee uusi') || t.includes('create new')) return false;
+                    if (t.includes('poista') || t.includes('remove') || t.includes('delete')) return false;
+                    if (t.includes('takaisin') || t.includes('back')) return false;
+                    if (t.includes('pdf')) return false;           // Avaa PDF — not what we want
+                    if (t.includes('valikko') || t.includes('tender menu')) return false;  // the toggle itself
+                    return t === 'avaa' || t === 'open' || t === 'avaa tarjous' || t === 'open tender';
+                });
+                if (safe.length > 0) {
+                    safe[0].click();
+                    return safe[0].textContent.trim();
+                }
+                return null;
+            """)
+            log(f"  Menu item clicked: {opened!r}")
+
+            try:
+                WebDriverWait(driver, 20).until(
+                    lambda d: "EditoiTarjousta" in d.current_url
+                )
+            except TimeoutException:
+                pass
+            time.sleep(2)
+            log(f"  After draft-open, URL: {driver.current_url}")
+
+        # Step 4: Check if we now have full access
         is_edit = "EditoiTarjousta" in driver.current_url
         tender["detail_full_access"] = is_edit
+        log(f"  detail_full_access = {is_edit}")
 
         if not is_edit:
-            # Public-only view — just grab what's visible
-            tender["detail_text"] = driver.find_element(By.TAG_NAME, "body").text
+            # Couldn't reach the full view. Capture whatever is visible.
+            try:
+                tender["detail_text"] = driver.find_element(By.TAG_NAME, "body").text
+            except Exception:
+                tender["detail_text"] = ""
             tender["detail_tabs"] = {}
-            driver.back()
-            time.sleep(3)
+            log(f"  Captured public/response-list body: {len(tender['detail_text'])} chars")
+            _return_to_listings(driver, listings_url)
             return True
 
         # Full access — click through each tab and collect content
         tab_texts = {}
+        captured_zip_href = None  # grabbed opportunistically when Publication docs tab is active
 
         for sidebar_id, tab_name, vaihe_name in DETAIL_TABS:
             try:
@@ -519,6 +706,17 @@ def scrape_detail_page(driver, tender: dict) -> bool:
                 else:
                     tab_texts[tab_name] = driver.find_element(By.TAG_NAME, "body").text
 
+                # While we're on the Publication documents tab, snapshot the ZIP
+                # link's href before switching tabs unloads it from the DOM.
+                if tab_name == "Publication documents" and captured_zip_href is None:
+                    try:
+                        zip_el = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/Zip/"]')
+                        if zip_el:
+                            captured_zip_href = zip_el[0].get_attribute("href")
+                            log(f"    Captured ZIP href during tab scrape: {captured_zip_href}")
+                    except Exception:
+                        pass
+
             except Exception as e:
                 log(f"    Tab '{tab_name}' error: {e}")
 
@@ -533,52 +731,61 @@ def scrape_detail_page(driver, tender: dict) -> bool:
         # Download all attachments as ZIP if enabled
         if os.getenv("ENABLE_DOWNLOAD_ATTACHMENTS", "0") == "1":
             try:
-                import re as _re
-                # Click Publication Documents tab to find ZIP link
-                pub_tab = driver.find_elements(By.ID, "sidebar3")
-                if pub_tab:
-                    ActionChains(driver).move_to_element(pub_tab[0]).click().perform()
-                    time.sleep(3)
+                zip_href = captured_zip_href
 
-                    # Find ZIP link via JavaScript
-                    zip_href = driver.execute_script("""
-                        var links = document.querySelectorAll('a');
-                        for (var a of links) {
-                            if ((a.href || '').includes('/Zip/')) return a.href;
-                        }
-                        return null;
-                    """)
+                # Fallback: if we didn't grab the href during tab scrape, try again now
+                if not zip_href:
+                    pub_tab = driver.find_elements(By.ID, "sidebar3")
+                    if pub_tab:
+                        ActionChains(driver).move_to_element(pub_tab[0]).click().perform()
+                        try:
+                            el = WebDriverWait(driver, 15).until(
+                                lambda d: d.find_element(By.CSS_SELECTOR, 'a[href*="/Zip/"]')
+                            )
+                            zip_href = el.get_attribute("href")
+                        except TimeoutException:
+                            pass
 
-                    if zip_href:
-                        before_files = set(os.listdir(DOWNLOADS_DIR))
-                        # Click the link (stays in same tab, triggers download)
-                        zip_link = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/Zip/"]')
-                        if zip_link:
-                            zip_link[0].click()
+                if not zip_href:
+                    log("    No ZIP link found in Publication Documents tab.")
+                else:
+                    log(f"    ZIP href: {zip_href}")
+                    # Download via `requests` using Selenium's session cookies.
+                    # Headless Chrome's download handler is unreliable; a direct
+                    # HTTP GET with the session cookie is simpler and deterministic.
+                    import re as _re
+                    import requests
+                    cookies = {c["name"]: c["value"] for c in driver.get_cookies()}
+                    user_agent = driver.execute_script("return navigator.userAgent") or ""
+                    headers = {"User-Agent": user_agent, "Referer": driver.current_url}
+                    try:
+                        r = requests.get(
+                            zip_href, cookies=cookies, headers=headers,
+                            stream=True, timeout=120, verify=False,
+                        )
+                        if r.status_code != 200:
+                            log(f"    ZIP GET failed: HTTP {r.status_code}")
                         else:
-                            driver.get(zip_href)
-
-                        # Wait for download to complete
-                        for _ in range(15):
-                            time.sleep(2)
-                            after_files = set(os.listdir(DOWNLOADS_DIR))
-                            completed = [f for f in (after_files - before_files) if not f.endswith('.crdownload')]
-                            if completed:
-                                filename = completed[0]
-                                filepath = os.path.join(DOWNLOADS_DIR, filename)
-                                tender["attachments_zip"] = filepath
-                                size_kb = os.path.getsize(filepath) // 1024
-                                log(f"    Attachments downloaded: {filename} ({size_kb} KB)")
-                                break
-                        else:
-                            log(f"    Attachment download: timed out")
-                    else:
-                        log(f"    No ZIP download link found")
+                            cd = r.headers.get("Content-Disposition", "")
+                            m = _re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', cd)
+                            filename = m.group(1) if m else f"{tp_id}_attachments.zip"
+                            filepath = os.path.join(DOWNLOADS_DIR, filename)
+                            bytes_written = 0
+                            with open(filepath, "wb") as f:
+                                for chunk in r.iter_content(chunk_size=8192):
+                                    if chunk:
+                                        f.write(chunk)
+                                        bytes_written += len(chunk)
+                            tender["attachments_zip"] = filepath
+                            size_kb = bytes_written // 1024
+                            log(f"    Attachments downloaded: {filename} ({size_kb} KB)")
+                    except Exception as e:
+                        log(f"    ZIP download via requests failed: {type(e).__name__}: {e}")
             except Exception as e:
-                log(f"    Attachment download error: {e}")
+                log(f"    Attachment download error: {type(e).__name__}: {e}")
 
-        # Pause for demo if requested
-        if os.getenv("DEMO_PAUSE", "0") == "1":
+        # Pause for demo if requested (skipped in headless)
+        if os.getenv("DEMO_PAUSE", "0") == "1" and os.getenv("HEADLESS", "0") != "1":
             tabs_found = list(tab_texts.keys())
             log(f"  Detail page scraped: {tender.get('name', '')[:60]}")
             log(f"  Tabs collected: {', '.join(tabs_found)}")
@@ -586,15 +793,13 @@ def scrape_detail_page(driver, tender: dict) -> bool:
                 log(f"  Attachments: {os.path.basename(tender['attachments_zip'])}")
             input("\n  ⏸  DEMO PAUSE — Review the detail page. Press Enter to go back...\n")
 
-        driver.back()
-        time.sleep(3)
+        _return_to_listings(driver, listings_url)
         return True
 
     except Exception as e:
         log(f"  Detail error on tpId={tp_id}: {e}")
         try:
-            driver.back()
-            time.sleep(3)
+            _return_to_listings(driver, listings_url)
         except Exception:
             pass
         return False
@@ -964,9 +1169,10 @@ def main():
 
     # Save full results
     print()
-    with open("demo_results.json", "w", encoding="utf-8") as f:
+    output_json = os.getenv("OUTPUT_JSON", "demo_results.json")
+    with open(output_json, "w", encoding="utf-8") as f:
         json.dump(notices, f, ensure_ascii=False, indent=2)
-    log(f"Full results saved to demo_results.json")
+    log(f"Full results saved to {output_json}")
 
     # Database stats
     stats = get_stats()
