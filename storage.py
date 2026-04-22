@@ -34,6 +34,14 @@ def init_db():
             description_short TEXT,
             published TEXT,
             deadline TEXT,
+            question_deadline TEXT,
+            procedure_type TEXT,
+            quality_weight INTEGER,
+            price_weight INTEGER,
+            scoring_basis TEXT,
+            contract_included INTEGER,
+            reservations_allowed INTEGER,
+            sharepoint_url TEXT,
             url TEXT,
             status TEXT DEFAULT 'new',
             first_seen TEXT DEFAULT (datetime('now')),
@@ -57,6 +65,24 @@ def init_db():
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_deadline ON tenders(deadline)
     """)
+
+    # Add columns introduced after the initial schema. ALTER TABLE ... ADD
+    # COLUMN is idempotent via a try/except because SQLite has no
+    # IF NOT EXISTS on ADD COLUMN.
+    for col_ddl in (
+        "ALTER TABLE tenders ADD COLUMN question_deadline TEXT",
+        "ALTER TABLE tenders ADD COLUMN procedure_type TEXT",
+        "ALTER TABLE tenders ADD COLUMN quality_weight INTEGER",
+        "ALTER TABLE tenders ADD COLUMN price_weight INTEGER",
+        "ALTER TABLE tenders ADD COLUMN scoring_basis TEXT",
+        "ALTER TABLE tenders ADD COLUMN contract_included INTEGER",
+        "ALTER TABLE tenders ADD COLUMN reservations_allowed INTEGER",
+        "ALTER TABLE tenders ADD COLUMN sharepoint_url TEXT",
+    ):
+        try:
+            conn.execute(col_ddl)
+        except Exception:
+            pass  # column already exists
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_source ON tenders(source)
     """)
@@ -196,13 +222,22 @@ def store_tenders(tenders: list[dict]) -> dict:
 
         if existing:
             # Update last_seen and merge any new fields
+            ci = tender.get("contract_included")
+            ra = tender.get("reservations_allowed")
             conn.execute("""
                 UPDATE tenders SET last_seen = datetime('now'), status = ?, category = ?,
                 cpv_codes = COALESCE(?, cpv_codes),
                 estimated_value = COALESCE(?, estimated_value),
                 notice_number = COALESCE(?, notice_number),
                 hilma_id = COALESCE(?, hilma_id),
-                org_business_id = COALESCE(?, org_business_id)
+                org_business_id = COALESCE(?, org_business_id),
+                question_deadline = COALESCE(?, question_deadline),
+                procedure_type = COALESCE(?, procedure_type),
+                quality_weight = COALESCE(?, quality_weight),
+                price_weight = COALESCE(?, price_weight),
+                scoring_basis = COALESCE(?, scoring_basis),
+                contract_included = COALESCE(?, contract_included),
+                reservations_allowed = COALESCE(?, reservations_allowed)
                 WHERE tp_id = ?
             """, (
                 tender["status"], tender["category"],
@@ -211,6 +246,13 @@ def store_tenders(tenders: list[dict]) -> dict:
                 tender.get("notice_number") or None,
                 tender.get("hilma_id") or None,
                 tender.get("org_business_id") or None,
+                tender.get("question_deadline") or None,
+                tender.get("procedure_type") or None,
+                tender.get("quality_weight"),
+                tender.get("price_weight"),
+                tender.get("scoring_basis") or None,
+                int(ci) if ci is not None else None,
+                int(ra) if ra is not None else None,
                 tp_id,
             ))
             updated_count += 1
@@ -220,12 +262,17 @@ def store_tenders(tenders: list[dict]) -> dict:
             else:
                 new_count += 1
 
+            ci = tender.get("contract_included")
+            ra = tender.get("reservations_allowed")
             conn.execute("""
                 INSERT OR REPLACE INTO tenders
                 (tp_id, name, organisation, source_org, type, category, description,
-                 description_short, published, deadline, url, status, raw_json,
+                 description_short, published, deadline, question_deadline, procedure_type,
+                 quality_weight, price_weight, scoring_basis,
+                 contract_included, reservations_allowed,
+                 url, status, raw_json,
                  source, cpv_codes, estimated_value, notice_number, hilma_id, org_business_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 tp_id,
                 tender.get("name", ""),
@@ -237,6 +284,13 @@ def store_tenders(tenders: list[dict]) -> dict:
                 tender.get("description_short", ""),
                 tender.get("published", ""),
                 tender.get("deadline", ""),
+                tender.get("question_deadline", ""),
+                tender.get("procedure_type", ""),
+                tender.get("quality_weight"),
+                tender.get("price_weight"),
+                tender.get("scoring_basis", ""),
+                int(ci) if ci is not None else None,
+                int(ra) if ra is not None else None,
                 tender.get("url", ""),
                 tender.get("status", "new"),
                 json.dumps(tender, ensure_ascii=False),

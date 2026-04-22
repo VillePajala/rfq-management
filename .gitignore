@@ -1,4 +1,5 @@
 .env
+.graph_token_cache.bin
 tenders.db
 scraper*.log
 chrome_profile/

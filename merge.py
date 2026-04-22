@@ -77,7 +77,8 @@ def merge_tender(hilma: dict, tarjouspalvelu: dict) -> dict:
     # Add Hilma-specific fields
     hilma_fields = [
         "cpv_codes", "estimated_value", "notice_number", "hilma_id",
-        "org_business_id", "main_type", "is_national", "is_dps",
+        "org_business_id", "main_type", "procedure_type",
+        "is_national", "is_dps",
         "is_framework", "winner_organisations", "procurement_docs_url",
         "nuts_codes", "currency",
     ]

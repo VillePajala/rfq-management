@@ -11,16 +11,39 @@ import re
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 
-def build_email_html(contact: str, department: str, tenders: list[dict]) -> str:
-    """Build an HTML email body for a single department's tender digest."""
+def build_email_html(contact: str, department: str, tenders: list[dict],
+                     reviewer_banner: dict | None = None) -> str:
+    """Build an HTML email body for a single department's tender digest.
+
+    reviewer_banner: when set, prepends a yellow "REVIEW MODE" banner
+    showing the routing proposal the reviewer is expected to verify before
+    forwarding. Expected keys:
+        intended_email: str  — the real recipient this digest is meant for
+        department:     str  — redundant with `department` arg, shown for clarity
+    """
 
     date_str = datetime.now().strftime("%d.%m.%Y")
+
+    banner_html = ""
+    if reviewer_banner:
+        banner_html = f"""
+        <div style="background:#fff3cd; border:2px solid #ffc107; padding:14px 18px; margin:0 0 20px 0; border-radius:6px;">
+            <div style="font-weight:bold; color:#856404; font-size:1.05em;">⚠️ REVIEW MODE — not yet sent to team</div>
+            <div style="margin-top:6px; color:#856404; font-size:0.9em;">
+                This digest was routed to department <strong>{reviewer_banner.get("department", department)}</strong> → intended recipient <strong>{reviewer_banner.get("intended_email", "")}</strong>.<br>
+                Please verify: matched keywords look right? Recipient address correct?<br>
+                If yes, forward this email to the intended recipient. If no, reply with corrections or update <code>routing_config.xlsx</code>.
+            </div>
+        </div>
+        """
 
     html = f"""
     <html>
@@ -40,6 +63,7 @@ def build_email_html(contact: str, department: str, tenders: list[dict]) -> str:
         </style>
     </head>
     <body>
+        {banner_html}
         <h1>{department} — New Tender Alert</h1>
         <p>Hi {contact},</p>
         <div class="stats">
@@ -60,10 +84,45 @@ def build_email_html(contact: str, department: str, tenders: list[dict]) -> str:
             priority = 2  # no summary — bottom
         return (priority, t.get("deadline", "zzz"))
 
+    # Human-readable labels for Hilma's eForms procedure-type codes.
+    # Blank / unknown codes pass through unchanged so nothing silently disappears.
+    PROCEDURE_LABELS = {
+        "open": "open (avoin)",
+        "restricted": "restricted (rajattu)",
+        "neg-wo-call": "negotiated without call",
+        "neg-w-call": "negotiated with call",
+        "comp-dial": "competitive dialogue",
+        "comp-tend": "competitive tendering",
+        "innovation": "innovation partnership",
+        "dps": "dynamic purchasing system",
+        "des-cont": "design contest",
+    }
+
     for t in sorted(tenders, key=sort_key):
         name = t.get("name", "N/A")
         org = t.get("organisation", "")
         deadline = t.get("deadline", "No deadline specified")
+        question_deadline = t.get("question_deadline", "")
+        procedure_type_raw = t.get("procedure_type", "") or ""
+        procedure_type = PROCEDURE_LABELS.get(procedure_type_raw, procedure_type_raw)
+        # Scoring mechanism — AI-extracted quality/price weights, or the
+        # qualitative basis ("price-only") when no explicit percentages given.
+        qw = t.get("quality_weight")
+        pw = t.get("price_weight")
+        sb = t.get("scoring_basis", "") or ""
+        if qw is not None and pw is not None:
+            scoring_display = f"Quality {qw}% / Price {pw}%"
+        elif sb and sb != "unknown":
+            scoring_display = sb.replace("-", " ").capitalize()
+        else:
+            scoring_display = ""
+
+        # Contract / reservations flags (AI-extracted, may be None)
+        ci = t.get("contract_included")
+        ra = t.get("reservations_allowed")
+        contract_display = {True: "Yes", False: "No"}.get(ci, "")
+        reservations_display = {True: "Allowed", False: "Not allowed"}.get(ra, "")
+
         desc = t.get("description_short", t.get("description", "")[:200])
         url = t.get("url", "")
 
@@ -101,6 +160,11 @@ def build_email_html(contact: str, department: str, tenders: list[dict]) -> str:
             </div>
             <div class="tender-org">{org}</div>
             <div>Deadline: <span class="tender-deadline">{deadline}</span></div>
+            {'<div style="font-size:0.85em; color:#566573;">Questions due: ' + question_deadline + '</div>' if question_deadline else ''}
+            {'<div style="font-size:0.85em; color:#566573;">Procedure: ' + procedure_type + '</div>' if procedure_type else ''}
+            {'<div style="font-size:0.85em; color:#566573;">Scoring: ' + scoring_display + '</div>' if scoring_display else ''}
+            {'<div style="font-size:0.85em; color:#566573;">Contract included: ' + contract_display + '</div>' if contract_display else ''}
+            {'<div style="font-size:0.85em; color:#566573;">Reservations: ' + reservations_display + '</div>' if reservations_display else ''}
             {'<div style="font-size:0.8em; color:#666;">CPV: ' + t.get("cpv_codes", "")[:60] + (' | Value: €{:,.0f}'.format(t["estimated_value"]) if t.get("estimated_value") and t["estimated_value"] > 0 else '') + '</div>' if t.get("cpv_codes") else ''}
             {'<div class="tender-desc" style="background:#eef6ff; padding:8px; margin-top:8px; border-radius:4px; font-size:0.9em; line-height:1.5;">' + source_tag + ('<br>' if source_tag else '') + ai_summary_html + '</div>' if ai_summary_html else ''}
             {'<div class="tender-desc">' + desc + '</div>' if desc and not ai_summary else ''}
@@ -118,8 +182,19 @@ def build_email_html(contact: str, department: str, tenders: list[dict]) -> str:
     return html
 
 
-def send_email(to_email: str, subject: str, html_body: str) -> bool:
-    """Send an email via SMTP. Credentials from .env."""
+def send_email(to_email: str, subject: str, html_body: str,
+               ics_body: str | None = None,
+               ics_filename: str = "tender_deadlines.ics") -> bool:
+    """Send an email via SMTP. Credentials from .env.
+
+    If `ics_body` is provided, attach it as `ics_filename`. Email clients
+    (Outlook, Apple Mail, Gmail) recognize the `text/calendar` MIME type and
+    offer one-click "Add to calendar". No external iCal library required.
+
+    When SMTP credentials aren't set, the HTML body is written as a preview
+    file next to the scraper, and — if an ics_body is supplied — the calendar
+    file is written alongside so it can still be inspected.
+    """
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER", "")
@@ -134,13 +209,34 @@ def send_email(to_email: str, subject: str, html_body: str) -> bool:
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(html_body)
         print(f"  [SMTP] Email preview saved to {filename}")
+        if ics_body:
+            ics_preview = filepath.replace(".html", ".ics")
+            with open(ics_preview, "w", encoding="utf-8", newline="") as f:
+                f.write(ics_body)
+            print(f"  [SMTP] iCal preview saved to {os.path.basename(ics_preview)}")
         return False
 
-    msg = MIMEMultipart("alternative")
+    # Build a `mixed` outer MIME (so attachments are first-class) wrapping
+    # an `alternative` for the HTML body.
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"] = from_email
     msg["To"] = to_email
-    msg.attach(MIMEText(html_body, "html"))
+
+    body_part = MIMEMultipart("alternative")
+    body_part.attach(MIMEText(html_body, "html"))
+    msg.attach(body_part)
+
+    if ics_body:
+        # Attach as an application/ics part so any mail client will render
+        # it as a calendar invite attachment. Some clients also accept
+        # `text/calendar; method=PUBLISH`, but using MIMEBase with a
+        # Content-Disposition of attachment is the most portable option.
+        ics_part = MIMEBase("text", "calendar", method="PUBLISH", name=ics_filename)
+        ics_part.set_payload(ics_body)
+        encoders.encode_base64(ics_part)
+        ics_part.add_header("Content-Disposition", f'attachment; filename="{ics_filename}"')
+        msg.attach(ics_part)
 
     try:
         with smtplib.SMTP(smtp_host, smtp_port) as server:
@@ -157,6 +253,14 @@ def send_email(to_email: str, subject: str, html_body: str) -> bool:
 def send_notifications(notifications: dict[str, list[tuple[dict, dict]]], max_emails: int = 0) -> dict:
     """Send one email per department. Returns send stats.
     max_emails: if > 0, only send the N largest department emails.
+
+    Reviewer-gate mode:
+        Set REVIEWER_MODE=1 and REVIEWER_EMAIL=reviewer@cgi.com to route
+        ALL per-department digests to a single reviewer mailbox instead of
+        the real BU-leader addresses. Matches the MVP stakeholder directive
+        "ei spämmää yet" — one human gates the first-wave emails, verifies
+        the routing, and forwards manually. Remove the flag once pilot
+        confirms routing quality.
     """
     sent = 0
     failed = 0
@@ -180,16 +284,54 @@ def send_notifications(notifications: dict[str, list[tuple[dict, dict]]], max_em
     if max_emails > 0:
         by_department = dict(sorted(by_department.items(), key=lambda x: -len(x[1]["tenders"]))[:max_emails])
 
+    # Reviewer-gate override
+    reviewer_mode = os.getenv("REVIEWER_MODE", "0") == "1"
+    reviewer_email = os.getenv("REVIEWER_EMAIL", "").strip()
+    if reviewer_mode and not reviewer_email:
+        print("  [REVIEWER] REVIEWER_MODE=1 but REVIEWER_EMAIL is empty — falling back to per-department addresses.")
+        reviewer_mode = False
+    if reviewer_mode:
+        print(f"  [REVIEWER] Reviewer gate active. All digests → {reviewer_email} for human verification.")
+
     # Send one email per department
     for dept, info in by_department.items():
         tenders = info["tenders"]
         if not tenders:
             continue
 
-        subject = f"CGI Tender Alert: {dept} — {len(tenders)} new tenders ({date_str})"
-        html = build_email_html(info["contact"], dept, tenders)
+        intended_email = info["email"]
+        intended_contact = info["contact"]
 
-        result = send_email(info["email"], subject, html)
+        if reviewer_mode:
+            target_email = reviewer_email
+            subject = (
+                f"[REVIEW → {dept}] {len(tenders)} new tenders ({date_str}) — "
+                f"would go to {intended_email}"
+            )
+            html = build_email_html(
+                intended_contact, dept, tenders,
+                reviewer_banner={
+                    "intended_email": intended_email,
+                    "department": dept,
+                },
+            )
+        else:
+            target_email = intended_email
+            subject = f"CGI Tender Alert: {dept} — {len(tenders)} new tenders ({date_str})"
+            html = build_email_html(intended_contact, dept, tenders)
+
+        # Build an iCal attachment with question + tender deadlines for this
+        # department's tenders. None if no parseable deadlines were found.
+        try:
+            from ical import build_tender_ics
+            ics_body = build_tender_ics(tenders)
+        except Exception as e:
+            print(f"  [iCal] Failed to build .ics for {dept}: {type(e).__name__}: {e}")
+            ics_body = None
+
+        ics_filename = f"cgi_tender_deadlines_{dept.replace(' ', '_')}.ics"
+        result = send_email(target_email, subject, html,
+                            ics_body=ics_body, ics_filename=ics_filename)
         if result:
             sent += 1
         else:

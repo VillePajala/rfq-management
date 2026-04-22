@@ -524,6 +524,28 @@ DETAIL_TABS = [
 ]
 
 
+def _extract_question_deadline(summary_text: str) -> str | None:
+    """Extract the question-submission deadline from a tender's Summary tab.
+
+    The Summary tab renders label/value pairs as consecutive lines, e.g.:
+        Kysymysten jätön määräaika
+        29.4.2026 16.00 (UTC+03:00)
+    We accept both Finnish and English labels so the extractor keeps working
+    if the browser UI language flips.
+    """
+    if not summary_text:
+        return None
+    lines = [ln.strip() for ln in summary_text.splitlines() if ln.strip()]
+    labels = {
+        "Kysymysten jätön määräaika",
+        "Deadline for submitting questions",
+    }
+    for i, line in enumerate(lines):
+        if line in labels and i + 1 < len(lines):
+            return lines[i + 1]
+    return None
+
+
 def _return_to_listings(driver, listings_url: str):
     """Reliably return to the listings page after a detail scrape.
 
@@ -728,6 +750,28 @@ def scrape_detail_page(driver, tender: dict) -> bool:
             combined.append(f"=== {tab_name} ===\n{text}")
         tender["detail_text"] = "\n\n".join(combined)
 
+        # Extract the question deadline from the Summary tab as a structured field.
+        q_deadline = _extract_question_deadline(tab_texts.get("Summary", ""))
+        if q_deadline:
+            tender["question_deadline"] = q_deadline
+            log(f"  Question deadline: {q_deadline}")
+
+        # Optional: AI extraction of scoring + contract + reservations fields.
+        # Opt-in via env flag so we don't spend OpenAI credits on metadata
+        # extraction during baseline runs. Single OpenAI call covers all
+        # three stakeholder-requested checks (see extract.py).
+        if os.getenv("ENABLE_METADATA_EXTRACTION", "0") == "1":
+            try:
+                from extract import apply_metadata
+                apply_metadata(tender)
+                log(f"  Scoring: quality={tender.get('quality_weight')} "
+                    f"price={tender.get('price_weight')} "
+                    f"basis={tender.get('scoring_basis')}")
+                log(f"  Contract included: {tender.get('contract_included')}  "
+                    f"Reservations allowed: {tender.get('reservations_allowed')}")
+            except Exception as e:
+                log(f"  Metadata extraction error: {type(e).__name__}: {e}")
+
         # Download all attachments as ZIP if enabled
         if os.getenv("ENABLE_DOWNLOAD_ATTACHMENTS", "0") == "1":
             try:
@@ -779,6 +823,18 @@ def scrape_detail_page(driver, tender: dict) -> bool:
                             tender["attachments_zip"] = filepath
                             size_kb = bytes_written // 1024
                             log(f"    Attachments downloaded: {filename} ({size_kb} KB)")
+
+                            # Optional: upload to SharePoint staging workspace.
+                            # Off by default; flip ENABLE_SHAREPOINT_UPLOAD=1
+                            # once GRAPH_* + SHAREPOINT_* env vars are set.
+                            if os.getenv("ENABLE_SHAREPOINT_UPLOAD", "0") == "1":
+                                try:
+                                    from sharepoint import upload_tender_zip
+                                    share_url = upload_tender_zip(filepath, tender)
+                                    if share_url:
+                                        tender["sharepoint_url"] = share_url
+                                except Exception as e:
+                                    log(f"    SharePoint upload error: {type(e).__name__}: {e}")
                     except Exception as e:
                         log(f"    ZIP download via requests failed: {type(e).__name__}: {e}")
             except Exception as e:

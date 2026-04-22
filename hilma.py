@@ -219,6 +219,12 @@ def to_tender_dict(hilma_notice: dict) -> dict:
     # Documents URL (if available)
     docs_url = hilma_notice.get("procurementDocumentsUrl", "")
 
+    # Procurement procedure type — EU eForms code list. Canonical values:
+    # 'open', 'restricted', 'neg-wo-call', 'neg-w-call', 'comp-dial',
+    # 'comp-tend', 'innovation', 'dps', 'des-cont'. Blank on prior-info
+    # / market-consultation notices where no procedure type applies yet.
+    procedure_type = hilma_notice.get("procedureType") or ""
+
     return {
         "tp_id": f"hilma-{hilma_notice.get('id', '')}",
         "name": name,
@@ -238,6 +244,7 @@ def to_tender_dict(hilma_notice: dict) -> dict:
         "currency": hilma_notice.get("currency", "EUR"),
         "notice_number": str(notice_number),
         "main_type": main_type,
+        "procedure_type": procedure_type,
         "is_national": hilma_notice.get("isNationalProcurement", False),
         "is_dps": hilma_notice.get("includesDynamicPurcharingSystem", False),
         "is_framework": hilma_notice.get("includesFrameworkAgreement", False),
