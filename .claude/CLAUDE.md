@@ -37,7 +37,7 @@ rfq-management/
 
 | Feature | Status | Notes |
 |---|---|---|
-| Chrome automation + Cloudflare bypass | ✅ Working | undetected-chromedriver, non-headless |
+| Chrome automation + Cloudflare bypass | ✅ Working | undetected-chromedriver, `--headless=new` verified (2026-04-22) from Finnish residential IP |
 | Login via Cloudia SSO | ✅ Working | Sometimes needs retry, username may double-enter |
 | Global search (all Finland) | ✅ Working | 100 tenders from 68 orgs in test run |
 | Notice type pre-filtering | ✅ Working | Only open tenders, no results/awards |
@@ -251,7 +251,7 @@ rm -f tenders.db
 4. **Fix Streamlit dashboard** — likely broken after routing refactor
 5. **Implement Tier 1 separate email** — critical alerts should be a distinct urgent email, not mixed into department digests
 6. **Expand pagination** — currently 5 pages (100 tenders). Production needs all pages.
-7. **Production deployment** — Azure VM with Xvfb, cron scheduling, service account
+7. **Production deployment** — Azure Container Apps Jobs with headless Chrome, scheduled cron trigger, CGI service account (Xvfb no longer needed — `--headless=new` verified 2026-04-22)
 
 ## People
 
@@ -265,12 +265,11 @@ Target: single Azure VM running nightly scheduled scrapes.
 
 **Infrastructure:**
 ```
-Azure VM (Ubuntu 22.04 LTS, B2s: 2 vCPU, 4 GB RAM)
-├── Xvfb (virtual display — Chrome can't run headless, Cloudflare blocks it)
-├── Python 3.12 + Chrome + undetected-chromedriver
-├── Cron: runs --mode=combined at 06:00 daily
-├── SQLite database (local, sufficient for hundreds of tenders)
-├── downloads/ folder for tender attachment ZIPs
+Azure Container Apps Job (schedule-triggered, Python 3.12 image)
+├── Python 3.12 + Chrome + undetected-chromedriver (headless=new)
+├── Scheduled trigger: runs --mode=combined at 06:00 EET/EEST daily
+├── SQLite in Blob Storage (loaded on start, flushed on exit)
+├── ZIP attachments → Blob Storage → SharePoint (via Graph)
 └── Outputs:
     ├── SharePoint (via Microsoft Graph API) — ZIPs + structured data
     ├── CGI SMTP / Microsoft 365 — email notifications
@@ -324,7 +323,7 @@ Note: if VM is deallocated after each run (~10 min/day), compute drops to ~€1-
 
 - **undetected-chromedriver** — only tool that bypasses Cloudflare Turnstile. Tested Playwright (5 variants), all failed.
 - **Zscaler SSL** — import certs into Chrome NSS database (`~/.pki/nssdb/`). Do NOT use `--ignore-certificate-errors` — Cloudflare detects it.
-- **Non-headless required** — Cloudflare blocks all headless browsers. Production needs Xvfb.
+- **Headless mode is the default as of 2026-04-22.** `--headless=new` + `undetected-chromedriver` 3.5.5 bypasses Cloudflare Turnstile from a Finnish residential IP. Azure datacenter-IP verification still pending (see Known Risks #4 in README). Historical note: early testing concluded "headless blocked" — that was pre-Chrome-109 and older uc versions; the combo now works.
 - **ActionChains for Vaadin** — Cloudia login uses Vaadin framework. JS click doesn't work. Must use Selenium ActionChains.
 - **Word boundary matching** — short product names (SAP, SAS) match Finnish words. Use regex `\b` boundaries.
 - **Session persistence** — login session only persists when clicking links from within the page. `driver.get(url)` loses the session.

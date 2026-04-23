@@ -47,7 +47,8 @@ def analyze_single_result(tender: dict) -> dict:
     if not api_key:
         return {}
 
-    client = OpenAI(api_key=api_key)
+    # 60 s timeout so a stuck OpenAI call can't wedge the nightly run.
+    client = OpenAI(api_key=api_key, timeout=60.0)
 
     name = tender.get("name", "")
     org = tender.get("organisation", "")

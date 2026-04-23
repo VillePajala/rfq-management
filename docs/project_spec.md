@@ -390,7 +390,7 @@ Audit of `demo_scraper.py`, `storage.py`, `summarize.py`, `notify.py`, `hilma.py
 | 2 | Hilma via API | Integrated in `hilma.py` | ✅ No change |
 | 3 | tarjouspalvelu.fi via scraper | Working headless in `demo_scraper.py` | ✅ No change |
 | 4 | **CPV-code filtering** | Hilma side: CPV-filtered. Tarjouspalvelu side: NOT CPV-filtered — only filtered by notice type. CPV tags arrive only when a tarjouspalvelu tender also exists in Hilma (via `merge.py`) | ✅ **Decided (2026-04-22): accept tarjouspalvelu-only tenders without CPV tag for MVP.** Three-tier keyword routing already narrows tarjouspalvelu-only tenders. Cross-source items pick up CPV via `merge.py`. Tarjouspalvelu-only tenders tend to be below-threshold local procurements where CPV is often unassigned at source anyway. AI CPV inference (8-digit hierarchy) rejected for MVP due to hallucination risk. Revisit in Full scope if pilot shows a measurable gap. |
-| 5 | Download to **one agreed SharePoint workspace** | Saves to local `downloads/` folder only | 🔴 Build: Graph API SharePoint upload module |
+| 5 | Download to **one agreed SharePoint workspace** | Saves to local `downloads/` folder only | 🟡 **Code-complete (2026-04-22):** `sharepoint.py` with 3-mode design (personal OneDrive / SharePoint delegated / SharePoint app-only). MSAL device-code flow, chunked upload for large files, `docs/sharepoint_setup.md` walkthrough. **Live end-to-end verification deferred to personal-Azure deployment phase.** |
 | 6 | Preliminary analysis — **keyword-based subject identification** | Three-tier routing in `routing.py` using `cgi_products.py` + `routing_config.xlsx` | ✅ No change |
 | 7 | Preliminary analysis — **question deadline + tender deadline** | Only tender deadline (`deadline`) captured as structured field. **Question deadline NOT separately persisted** (it appears in raw detail text but isn't extracted) | ✅ **Done (2026-04-22):** `_extract_question_deadline()` parses Summary tab for FI / EN label, persists as `question_deadline` in tender dict + DB column + renders in email. |
 | 8 | Preliminary analysis — **estimated size** (kokoluokka) | Captured from Hilma as `estimated_value`; tarjouspalvelu-only tenders don't get this | ✅ **Decided (2026-04-22): accept partial coverage for MVP — Hilma-only.** Hilma covers all EU-threshold + most above-minimum national procurements, which is where size matters most. Tarjouspalvelu-only tenders are typically below-threshold / smaller. Adding an AI extraction step for size adds cost + complexity without strong value signal. Revisit in Full scope if pilot feedback shows size is a decisive routing factor. |
@@ -398,17 +398,17 @@ Audit of `demo_scraper.py`, `storage.py`, `summarize.py`, `notify.py`, `hilma.py
 | 10 | Preliminary analysis — **scoring mechanism (quality vs. price)** | Not extracted | ✅ **Done (2026-04-22):** New `extract.py` module uses OpenAI JSON mode to return `quality_weight`, `price_weight`, `scoring_basis` with evidence quote. Opt-in via `ENABLE_METADATA_EXTRACTION=1`. Conservative null-when-unknown behavior; structural price-only inference supported. |
 | 11 | Preliminary analysis — **contract included + reservations allowed** | Not extracted. Note: existing `contract_duration` / `contract_value` fields are for competitor analysis (winners), not this requirement. **Name collision risk** | ✅ **Done (2026-04-22):** Extracted by the same unified OpenAI call as #10. Field names `contract_included` / `reservations_allowed` deliberately distinct from competitor-analysis `contract_duration` / `contract_value`. Both booleans stored as `INTEGER` in SQLite (null / 0 / 1). |
 | 12 | Initial in-house routing | Three-tier working | ✅ No change |
-| 13 | Email to **agreed mailbox** (not direct to teams) | Currently sends to addresses in `routing_config.xlsx`. If addresses are real department emails, it goes direct. **No reviewer-gate code path.** | 🟡 Two options: (a) during pilot, configure `routing_config.xlsx` so all rules resolve to reviewer's address only (no code change); (b) build a `REVIEWER_MODE=1` env flag that overrides per-rule recipients to a single reviewer |
-| 14 | Email contains **link to downloaded material** | Current email has a link to the tarjouspalvelu tender page. **No SharePoint link** (because no upload yet) | 🔴 Depends on #5: once SharePoint upload is live, include the SharePoint link in the digest |
-| 15 | No direct routing to teams yet ("ei spämmää") | See #13 | 🟡 Same as #13 |
-| 16 | iCal for deadlines (nice-to-have) | Not built | 🟡 Can be added in ~0.5 day; include `.ics` attachment in the digest |
+| 13 | Email to **agreed mailbox** (not direct to teams) | Currently sends to addresses in `routing_config.xlsx`. If addresses are real department emails, it goes direct. **No reviewer-gate code path.** | ✅ **Done (2026-04-22):** `REVIEWER_MODE=1` + `REVIEWER_EMAIL` env flags. When enabled, all per-department digests redirect to one reviewer; subject gets `[REVIEW → <dept>]` prefix; body gets a yellow "intended recipient" banner with forward instruction. Graceful fallback if `REVIEWER_EMAIL` is blank. |
+| 14 | Email contains **link to downloaded material** | Current email has a link to the tarjouspalvelu tender page. **No SharePoint link** (because no upload yet) | 🟡 Depends on #5 live verification. Once `sharepoint.py` upload is exercised end-to-end, capture the returned `webUrl` and add a `SharePoint link:` line to the digest — trivial follow-up. |
+| 15 | No direct routing to teams yet ("ei spämmää") | See #13 | ✅ **Done** via #13's REVIEWER_MODE flag. |
+| 16 | iCal for deadlines (nice-to-have) | Not built | ✅ **Done (2026-04-22):** new `ical.py` parses FI/EN date formats with DST-aware Helsinki tz conversion, emits RFC 5545 VCALENDAR with 2 VEVENTs per tender (question + tender deadline), attached as `text/calendar;method=PUBLISH` MIMEBase part. |
 | 17 | Cloud dashboard (nice-to-have) | Not built; MVP minimal version spec'd in § 3.3 | 🟡 Cheap minimal version in MVP per § 3.3 |
 | 18 | Antivirus for attachments (open question) | No scanning | 🔴 Enable Microsoft Defender for Storage (see § 7.2.1) |
 
-**Summary (as of 2026-04-22):**
-- ✅ 12 items resolved (originally-fine + now-done + decided)
-- 🟡 4 items still need minor config / decisions (reviewer gate #13+#15, iCal #16, cloud dashboard #17)
-- 🔴 2 items still require new code (SharePoint upload #5 + its dependent email-link #14) + Defender enablement #18 (infra, not code)
+**Summary (as of 2026-04-22, end of MVP-closure day):**
+- ✅ 15 items resolved (originally-fine + now-done + decided)
+- 🟡 3 items code-complete pending live verification or deployment (SharePoint upload #5, email-link #14, cloud dashboard #17)
+- ⚪ 0 items blocking MVP code. Only #18 Defender remains — infra, not code (runbook in `docs/defender_runbook.md`).
 
 ---
 

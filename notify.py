@@ -239,7 +239,9 @@ def send_email(to_email: str, subject: str, html_body: str,
         msg.attach(ics_part)
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
+        # Explicit 30 s timeout — without it, a hung SMTP server during a
+        # nightly maintenance window wedges the whole pipeline indefinitely.
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
             server.starttls()
             server.login(smtp_user, smtp_password)
             server.sendmail(from_email, to_email, msg.as_string())
@@ -265,6 +267,7 @@ def send_notifications(notifications: dict[str, list[tuple[dict, dict]]], max_em
     sent = 0
     failed = 0
     previewed = 0
+    delivered_tp_ids: set[str] = set()
     date_str = datetime.now().strftime("%d.%m.%Y")
 
     # Regroup: from email -> [(tender, rule)] to department -> {email, contact, tenders}
@@ -334,8 +337,21 @@ def send_notifications(notifications: dict[str, list[tuple[dict, dict]]], max_em
                             ics_body=ics_body, ics_filename=ics_filename)
         if result:
             sent += 1
+            # Only tenders whose email actually went out should be marked
+            # notified — otherwise a single SMTP failure silently consumes
+            # this batch forever.
+            for t in tenders:
+                tp_id = t.get("tp_id")
+                if tp_id:
+                    delivered_tp_ids.add(str(tp_id))
         else:
             # Check if it was previewed (no SMTP) vs actual failure
             previewed += 1
 
-    return {"sent": sent, "failed": failed, "previewed": previewed, "departments": len(by_department)}
+    return {
+        "sent": sent,
+        "failed": failed,
+        "previewed": previewed,
+        "departments": len(by_department),
+        "delivered_tp_ids": delivered_tp_ids,
+    }

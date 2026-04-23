@@ -16,6 +16,12 @@ needed in the .ics, which keeps the output portable.
 """
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+# Helsinki local time — honours DST automatically (EET = UTC+2 winter,
+# EEST = UTC+3 summer). Used as the fallback tz when a scraped timestamp
+# doesn't have an explicit (UTC+HH:MM) suffix.
+_HELSINKI = ZoneInfo("Europe/Helsinki")
 
 
 _DATE_RE = re.compile(
@@ -50,11 +56,13 @@ def parse_tender_date(raw: str) -> datetime | None:
             if tz_sign == "-":
                 offset = -offset
             tz = timezone(offset)
+            local = datetime(y, mo, d, h, mi, s, tzinfo=tz)
         else:
-            # Assume Helsinki EEST / UTC+3 for naive timestamps — matches
-            # what tarjouspalvelu.fi consistently emits during summer.
-            tz = timezone(timedelta(hours=3))
-        local = datetime(y, mo, d, h, mi, s, tzinfo=tz)
+            # Naive timestamp — interpret as Helsinki local time. ZoneInfo
+            # handles DST automatically (EET winter / EEST summer), so
+            # a naive "15.1.2026 10:00" correctly becomes UTC 08:00, and
+            # "15.7.2026 10:00" correctly becomes UTC 07:00.
+            local = datetime(y, mo, d, h, mi, s, tzinfo=_HELSINKI)
         return local.astimezone(timezone.utc)
     except (ValueError, TypeError):
         return None

@@ -37,7 +37,10 @@ def _client() -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY not set")
-    return OpenAI(api_key=api_key)
+    # Explicit 60 s timeout — SDK default is 600 s, too long for an
+    # unattended nightly run where a single stuck call can wedge the
+    # whole extraction loop.
+    return OpenAI(api_key=api_key, timeout=60.0)
 
 
 def _relevant_text(tender: dict) -> str:

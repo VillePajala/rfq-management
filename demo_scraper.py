@@ -945,6 +945,29 @@ def extract_notices(driver, org_slug: str, max_pages: int = 5,
     if scrape_details:
         log(f"  Detail pages scraped: {total_details}/{len(all_notices)}")
 
+    # Zero-results health check. A run that completes successfully but yields
+    # zero tenders almost always means a silent login failure, a Cloudflare
+    # soft block, or a selector drift — never a genuine "nothing was published
+    # today" outcome given that 100+ notices get filed every weekday.
+    # Surface this loudly so the reviewer noticing an empty inbox knows why.
+    if len(all_notices) == 0:
+        log("⚠️  ZERO TENDERS EXTRACTED — likely silent login failure, Cloudflare "
+            "block, or UI selector drift. Investigate before trusting the run.")
+        try:
+            from notify import send_email
+            alert_to = os.getenv("REVIEWER_EMAIL") or os.getenv("SMTP_USER")
+            if alert_to:
+                send_email(
+                    alert_to,
+                    "[ALERT] CGI Tender Agent run produced 0 tenders",
+                    "<html><body><h2>Nightly run produced zero tenders</h2>"
+                    "<p>The scraper completed without error but extracted no tenders. "
+                    "This is almost always a silent failure — login, Cloudflare, "
+                    "or a UI change. Check scraper.log.</p></body></html>",
+                )
+        except Exception as e:
+            log(f"  (Could not send zero-results alert: {type(e).__name__}: {e})")
+
     return all_notices
 
 
@@ -1294,10 +1317,21 @@ def main():
             log(f"Departments: {result['departments']}")
             log(f"Emails sent: {result['sent']}, previewed: {result['previewed']}, failed: {result['failed']}")
 
-            # Mark as notified
-            notified_ids = [n["tp_id"] for n in open_tenders if n.get("tp_id")]
-            mark_notified(notified_ids)
-            log(f"Marked {len(notified_ids)} tenders as notified.")
+            # Only mark as notified the tenders whose digest actually got
+            # delivered (or previewed to disk when SMTP is off). Tenders whose
+            # email failed stay `notified=0` and get another chance next run.
+            delivered = result.get("delivered_tp_ids") or set()
+            # In preview mode (no SMTP configured), emails are written to disk
+            # instead of sent; still safe to mark those delivered so we don't
+            # re-preview the same batch forever.
+            if result["sent"] == 0 and result["previewed"] > 0:
+                delivered = {n["tp_id"] for n in open_tenders if n.get("tp_id")}
+            if delivered:
+                mark_notified(list(delivered))
+                log(f"Marked {len(delivered)} tenders as notified "
+                    f"(of {len(open_tenders)} open).")
+            else:
+                log("No tenders marked notified — no email was delivered.")
         else:
             log("Email sending: DISABLED (set ENABLE_EMAIL=1 to enable)")
 
