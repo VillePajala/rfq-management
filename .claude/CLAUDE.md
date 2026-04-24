@@ -323,7 +323,10 @@ Note: if VM is deallocated after each run (~10 min/day), compute drops to ~€1-
 
 - **undetected-chromedriver** — only tool that bypasses Cloudflare Turnstile. Tested Playwright (5 variants), all failed.
 - **Zscaler SSL** — import certs into Chrome NSS database (`~/.pki/nssdb/`). Do NOT use `--ignore-certificate-errors` — Cloudflare detects it.
-- **Headless mode is the default as of 2026-04-22.** `--headless=new` + `undetected-chromedriver` 3.5.5 bypasses Cloudflare Turnstile from a Finnish residential IP. Azure datacenter-IP verification still pending (see Known Risks #4 in README). Historical note: early testing concluded "headless blocked" — that was pre-Chrome-109 and older uc versions; the combo now works.
+- **Headless mode is the default as of 2026-04-22.** `--headless=new` + `undetected-chromedriver` 3.5.5 bypasses Cloudflare Turnstile from a Finnish residential IP AND from an **Azure datacenter IP in North Europe** (verified 2026-04-23 on a B2s VM: full `/Default/Index` page loaded clean, 420 KB, zero challenge markers). Historical note: early testing concluded "headless blocked" — that was pre-Chrome-109 and older uc versions.
+- **Minimum VM size: B2s (2 vCPU / 4 GB RAM).** B1s (1 GB) causes Chromedriver OOM-related timeouts under headless Chrome — verified 2026-04-23.
+- **Python 3.12 requires setuptools shim** — `undetected-chromedriver` 3.5.5 imports `distutils.version.LooseVersion`, which was removed in Python 3.12. `pip install setuptools` restores it via `setuptools._distutils`. Required in any container image using Python 3.12.
+- **Chrome flag `--disable-dev-shm-usage`** is required on containerized / low-RAM environments — the default `/dev/shm` size (64 MB in most containers) crashes Chrome under load.
 - **ActionChains for Vaadin** — Cloudia login uses Vaadin framework. JS click doesn't work. Must use Selenium ActionChains.
 - **Word boundary matching** — short product names (SAP, SAS) match Finnish words. Use regex `\b` boundaries.
 - **Session persistence** — login session only persists when clicking links from within the page. `driver.get(url)` loses the session.

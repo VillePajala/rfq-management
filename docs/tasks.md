@@ -22,6 +22,7 @@ Living progress tracker. Check items as they land. Derived from
 - [x] Email digest generation (HTML)
 - [x] SQLite persistence + dedup
 - [x] Headless = visible output parity (verified 2026-04-22)
+- [x] **Azure datacenter IP compatibility** verified on B2s North Europe (2026-04-23): Cloudflare Turnstile passes, `/Default/Index` loads clean (420 KB, zero challenge markers). B1s insufficient — OOM crashes Chrome. Python 3.12 requires `pip install setuptools` shim for `undetected-chromedriver 3.5.5`. Chrome flag `--disable-dev-shm-usage` required for containerized environments.
 - [x] Written spec: `docs/project_spec.md` (v1 draft)
 - [x] Written spec: `docs/mvp_requirements_stakeholder.md` (verbatim source)
 

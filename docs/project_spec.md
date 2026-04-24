@@ -51,6 +51,12 @@ CGI Finland currently discovers and tracks Finnish public-sector procurement opp
 **Verified with comparison runs (2026-04-22):**
 - Headless mode produces identical scraped data to visible mode — same 1,612 search results, same metadata, same detail extraction, same ZIP file (18,863 KB).
 
+**Azure datacenter IP verified (2026-04-23):**
+- Full Turnstile bypass + real page load from an Azure B2s VM in **North Europe** region, using `undetected-chromedriver 3.5.5` + Chrome `--headless=new`. Page: `https://tarjouspalvelu.fi/Default/Index`. Page length: 420,333 bytes. 5 of 5 real-page markers hit, zero challenge markers, elapsed 14.8 s. **This removes the last open risk to the Container Apps Jobs deployment path.**
+- Two operational facts confirmed during the test:
+  - **B2s (4 GB RAM) required** — B1s (1 GB) causes Chromedriver OOM-related timeouts under headless Chrome.
+  - **Python 3.12 needs `setuptools` installed** as a shim — `undetected-chromedriver 3.5.5` imports `distutils.version.LooseVersion`, which Python 3.12 removed; `pip install setuptools` restores it via `setuptools._distutils`.
+
 **What isn't built yet:**
 - Azure deployment (Infrastructure-as-Code)
 - Dockerfile
@@ -483,7 +489,7 @@ Audit of `demo_scraper.py`, `storage.py`, `summarize.py`, `notify.py`, `hilma.py
 |---|---|---|---|
 | Resource Group | Logical container | — | €0 |
 | Container Apps Environment | Hosts the Job | Consumption | ~€0 baseline |
-| Container Apps Job | Executes nightly scrape | 2 vCPU / 4 GB, 15-min timeout | ~€2–5 (7 min × 30 days) |
+| Container Apps Job | Executes nightly scrape | **2 vCPU / 4 GB required** (B1s / 1 GB causes Chromedriver OOM under headless — verified 2026-04-23). 15-min timeout. | ~€2–5 (7 min × 30 days) |
 | Azure Container Registry | Stores Docker image | Basic SKU (10 GB) | ~€4 |
 | Key Vault | Secrets: SSO password, API keys, SMTP | Standard | ~€0.50 |
 | Azure Blob Storage | ZIP archive + state backup | Standard LRS, Hot tier | ~€1 (50 GB growth) |
@@ -696,7 +702,7 @@ scraper → Blob container (staging)
 |---|---|---|
 | **Phase 0** | Local PoC working | ✅ Done |
 | **Phase 1a** | Personal-Azure simulation (Ville's sub) | 1–2 weeks |
-| **Phase 1b** | Validation from Azure IP (Cloudflare test) | 0.5 day |
+| **Phase 1b** | ✅ **Complete (2026-04-23)** — Validated from Azure B2s North Europe: headless Chrome passes Cloudflare Turnstile, full page loads from Azure datacenter IP. | — |
 | **Phase 2** | Dockerize + Bicep IaC + CI pipeline | 1 week |
 | **Phase 3** | SharePoint upload + Graph API integration | 3–5 days |
 | **Phase 4** | Deploy to CGI Public, staging env | 0.5–1 week (including DPSC) |
@@ -729,7 +735,7 @@ scraper → Blob container (staging)
 | Item | Description | Est. effort |
 |---|---|---|
 | Ohjaustiedosto schema alignment | Confirm scraper reads the MVP column set from § 3.5; swap from local file to SharePoint-hosted Excel (Graph API file read) | 0.5–1 day |
-| Dockerfile | Python 3.12 + Chrome + the scraper | 0.5 day |
+| Dockerfile | Python 3.12 + Chrome + the scraper. **MUST include:** (a) `pip install setuptools` — required shim for `undetected-chromedriver 3.5.5` on Python 3.12 (distutils was removed); (b) pass `--disable-dev-shm-usage` as a Chrome option to avoid `/dev/shm` exhaustion on low-RAM containers; (c) base image must provide ≥ 2 GB memory — B2s equivalent. All three verified 2026-04-23. | 0.5 day |
 | Bicep templates | RG, ACR, Container Apps Environment + Job(s), Key Vault, Blob, Log Analytics, App Insights, Managed Identity, Entra App Registration, Static Web App (for koontinäkymä) | 1.5–2 days |
 | GitHub Actions pipeline | Build → push to ACR → trigger Job update | 1 day |
 | Graph API / SharePoint upload module | Python module using `msgraph-sdk` — upload ZIPs to staging workspace | 1–2 days |
@@ -787,6 +793,8 @@ Tracked primarily in `README.md` § *Known Risks & Open Questions*. Items specif
 
 ### Azure / infrastructure
 
+_Note: "Can headless Chrome pass Cloudflare from an Azure datacenter IP?" — previously the biggest open question — was **answered YES on 2026-04-23** from a B2s VM in North Europe. See § 2 "Current state" for details. Removes the last open risk on the Container Apps Jobs deployment path._
+
 6. **Azure OpenAI vs. OpenAI API directly?** CGI preference TBD. Azure OpenAI keeps inference in Azure (simpler compliance) but limited model choice and currently no gpt-4o-mini parity.
 7. **CI/CD tool standard?** GitHub Actions or Azure DevOps Pipelines — what does CGI standardize on?
 8. **IaC standard?** Bicep (Azure-native) or Terraform?
@@ -794,6 +802,7 @@ Tracked primarily in `README.md` § *Known Risks & Open Questions*. Items specif
 10. **SharePoint target confirmed?** Which specific site and library receive ZIP uploads?
 11. **Budget approval ceiling?** OK with ~€30–50/mo MVP, ~€100–200/mo Full?
 12. **Antivirus approach for attachments?** Recommended: Microsoft Defender for Storage on the Blob staging container. Needs CGI security green-light vs. alternative tooling already in use.
+13. **Which region for production?** North Europe is confirmed working. Other regions (West Europe, Sweden Central) may or may not have the same Cloudflare IP reputation — CGI preference + data-residency requirements drive the choice.
 
 ---
 

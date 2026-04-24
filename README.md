@@ -147,17 +147,18 @@ Unified Python stack — no separate RPA tool needed since all targets are web-b
 
 ## Known Risks & Open Questions
 
-_Last updated: 2026-04-21 after headless viability testing and Riku Turkia's clarification on draft creation._
+_Last updated: 2026-04-23 after Azure datacenter IP verification._
 
 ### Resolved
 
 | Topic | Resolution |
 |---|---|
-| **Cloudflare Turnstile** | `undetected-chromedriver` patches out automation indicators; Turnstile auto-resolves without human interaction. Works both with a visible window and with Chrome `--headless=new` (verified 2026-04-21). |
+| **Cloudflare Turnstile** | `undetected-chromedriver` patches out automation indicators; Turnstile auto-resolves without human interaction. Works with Chrome `--headless=new` (verified 2026-04-21 on residential IP, 2026-04-23 on Azure datacenter IP). |
 | **Zscaler SSL** | Import Zscaler certs into Chrome NSS database (see setup script in this file). Not needed outside the CGI network. |
 | **Login** | Cloudia SSO via `login.cloudia.net`. The final redirect from `/Authentication/ExternalLogin` to `/Default/Index` sometimes stalls — the scraper waits up to 45s and then force-navigates to `/Default/Index`, which succeeds. Works in both visible and headless modes. Account: `ville.pajala@cgi.com`. |
 | **Headless feasibility** | `--headless=new` produces the same listings output as visible mode (verified: both yield 1,612 search results, same classification, same Tier 1B routing matches). See `test_headless.py` and `test_anonymous.py`. |
 | **No public API** | Confirmed by Riku Turkia (2026-04-21): tarjouspalvelu.fi has no supported API. All automation must use browser UI. |
+| **Azure datacenter IP reputation** | ✅ Verified 2026-04-23 on B2s North Europe VM: full page load, zero Cloudflare challenges. **B2s minimum** (B1s crashes Chrome). **Python 3.12 + `setuptools` shim** required. **`--disable-dev-shm-usage`** Chrome flag required for containerized environments. |
 
 ### Active risks
 
@@ -173,8 +174,11 @@ Past visible and headless runs opened tenders while logged in and therefore crea
 **3. Login redirect is fragile**
 The scraper papers over an incomplete SSO redirect with a force-navigate fallback. If Cloudia changes the SSO flow, the fallback may also fail. Separately, the scraper uses ~25 hardcoded `time.sleep()` calls in other places; ~9 of those wait blindly for async events and should be converted to `WebDriverWait` conditions over time.
 
-**4. Azure datacenter IP reputation — untested**
-All testing so far has been from a Finnish residential IP (via WSL). Cloudflare challenges datacenter IPs more aggressively. Before committing to an Azure container deployment, we need to run the same tests from an Azure VM to confirm Turnstile still auto-resolves.
+**4. Azure datacenter IP reputation — ✅ RESOLVED (2026-04-23)**
+Verified on a B2s VM in Azure's North Europe region: `undetected-chromedriver 3.5.5` + Chrome `--headless=new` successfully loads `https://tarjouspalvelu.fi/Default/Index` with zero Cloudflare challenge markers and all expected page markers present (420 KB body, elapsed 14.8 s). Container Apps Jobs deployment path is unblocked. Two operational facts captured during the test:
+- **B2s (4 GB RAM) is the minimum** — B1s (1 GB) causes Chromedriver OOM-related timeouts under headless Chrome.
+- **Python 3.12 needs `setuptools` installed** to shim the removed `distutils` module for `undetected-chromedriver` 3.5.5.
+- `--disable-dev-shm-usage` Chrome flag required on containerized environments (small `/dev/shm` default).
 
 **5. Detail access needs a policy decision**
 Anonymous users see: reference number, title, type, organisation, published/deadline dates, and full description (~1–2 KB of Finnish procurement text). Anonymous users do NOT see: publication documents, Q&A, attachments, or the tabbed edit-view. To access attachments + full detail, login is required — which creates a draft. See Decisions Needed #1 below.
