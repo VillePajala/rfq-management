@@ -1,0 +1,13 @@
+# Local-dev / PoC tooling deps — NOT shipped in the deployed container.
+#
+# Install on top of requirements.txt:
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+#  - python-pptx + Pillow  →  tools/create_presentation.py (CGI sales deck)
+#  - streamlit             →  tools/streamlit_dashboard.py (untested, may need fixes)
+
+-r requirements.txt
+
+python-pptx>=1.0.0
+Pillow>=10.0.0
+streamlit>=1.30.0

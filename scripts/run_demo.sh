@@ -2,11 +2,11 @@
 # Demo run: scrapes a small set, summarizes, routes, sends real emails
 # Usage: ./run_demo.sh
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 source venv/bin/activate
 
 # Clean DB for fresh demo
-rm -f tenders.db
+rm -f data/tenders.db
 
 # Demo settings
 export ENABLE_EMAIL=1              # Send real emails
@@ -22,4 +22,4 @@ echo "  ║   DEMO RUN — emails will be sent!     ║"
 echo "  ╚═══════════════════════════════════════╝"
 echo ""
 
-python demo_scraper.py --mode=tenders
+python -m app.main --mode=tenders

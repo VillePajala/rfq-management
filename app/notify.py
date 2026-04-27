@@ -16,7 +16,9 @@ from email import encoders
 from datetime import datetime
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+from .paths import ENV_PATH, PREVIEWS_DIR
+
+load_dotenv(ENV_PATH)
 
 
 def build_email_html(contact: str, department: str, tenders: list[dict],
@@ -205,7 +207,7 @@ def send_email(to_email: str, subject: str, html_body: str,
         print(f"  [SMTP] No SMTP credentials in .env — email NOT sent to {to_email}")
         print(f"  [SMTP] Would have sent: {subject}")
         filename = f"email_preview_{to_email.replace('@', '_at_')}_{subject[:30].replace(' ', '_')}.html"
-        filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+        filepath = str(PREVIEWS_DIR / filename)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(html_body)
         print(f"  [SMTP] Email preview saved to {filename}")
@@ -326,7 +328,7 @@ def send_notifications(notifications: dict[str, list[tuple[dict, dict]]], max_em
         # Build an iCal attachment with question + tender deadlines for this
         # department's tenders. None if no parseable deadlines were found.
         try:
-            from ical import build_tender_ics
+            from .ical import build_tender_ics
             ics_body = build_tender_ics(tenders)
         except Exception as e:
             print(f"  [iCal] Failed to build .ics for {dept}: {type(e).__name__}: {e}")

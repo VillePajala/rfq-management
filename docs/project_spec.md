@@ -214,7 +214,7 @@ periodically; any reply is interpreted as a claim and surfaces in the koontinäk
 
 ### 3.5 Ohjaustiedosto — routing control file
 
-**File:** `routing_config.xlsx` (already exists in the repo; current columns will be
+**File:** `config/routing_config.xlsx` (already exists in the repo; current columns will be
 aligned with the structure below during MVP build).
 
 **What it is:** the single source of truth for routing decisions. Non-technical
@@ -386,7 +386,7 @@ stakeholder's "light pilot" philosophy.
 
 ### 3.8 Current code gaps vs stakeholder requirements
 
-Audit of `demo_scraper.py`, `storage.py`, `summarize.py`, `notify.py`, `hilma.py`,
+Audit of `app/main.py`, `storage.py`, `summarize.py`, `notify.py`, `hilma.py`,
 `routing.py` against the stakeholder's MVP requirements
 (`docs/mvp_requirements_stakeholder.md`) as of 2026-04-22.
 
@@ -394,17 +394,17 @@ Audit of `demo_scraper.py`, `storage.py`, `summarize.py`, `notify.py`, `hilma.py
 |---|---|---|---|
 | 1 | Monitor **tarjouspyynnöt, tietopyynnöt, markkinavuoropuhelut** | All three captured; `tietopyyntö` + `markkinavuoropuhelu` go into `early_signal` bucket; `tarjouspyyntö` into `open_competition` | ✅ No change |
 | 2 | Hilma via API | Integrated in `hilma.py` | ✅ No change |
-| 3 | tarjouspalvelu.fi via scraper | Working headless in `demo_scraper.py` | ✅ No change |
+| 3 | tarjouspalvelu.fi via scraper | Working headless in `app/main.py` | ✅ No change |
 | 4 | **CPV-code filtering** | Hilma side: CPV-filtered. Tarjouspalvelu side: NOT CPV-filtered — only filtered by notice type. CPV tags arrive only when a tarjouspalvelu tender also exists in Hilma (via `merge.py`) | ✅ **Decided (2026-04-22): accept tarjouspalvelu-only tenders without CPV tag for MVP.** Three-tier keyword routing already narrows tarjouspalvelu-only tenders. Cross-source items pick up CPV via `merge.py`. Tarjouspalvelu-only tenders tend to be below-threshold local procurements where CPV is often unassigned at source anyway. AI CPV inference (8-digit hierarchy) rejected for MVP due to hallucination risk. Revisit in Full scope if pilot shows a measurable gap. |
 | 5 | Download to **one agreed SharePoint workspace** | Saves to local `downloads/` folder only | 🟡 **Code-complete (2026-04-22):** `sharepoint.py` with 3-mode design (personal OneDrive / SharePoint delegated / SharePoint app-only). MSAL device-code flow, chunked upload for large files, `docs/sharepoint_setup.md` walkthrough. **Live end-to-end verification deferred to personal-Azure deployment phase.** |
-| 6 | Preliminary analysis — **keyword-based subject identification** | Three-tier routing in `routing.py` using `cgi_products.py` + `routing_config.xlsx` | ✅ No change |
+| 6 | Preliminary analysis — **keyword-based subject identification** | Three-tier routing in `routing.py` using `cgi_products.py` + `config/routing_config.xlsx` | ✅ No change |
 | 7 | Preliminary analysis — **question deadline + tender deadline** | Only tender deadline (`deadline`) captured as structured field. **Question deadline NOT separately persisted** (it appears in raw detail text but isn't extracted) | ✅ **Done (2026-04-22):** `_extract_question_deadline()` parses Summary tab for FI / EN label, persists as `question_deadline` in tender dict + DB column + renders in email. |
 | 8 | Preliminary analysis — **estimated size** (kokoluokka) | Captured from Hilma as `estimated_value`; tarjouspalvelu-only tenders don't get this | ✅ **Decided (2026-04-22): accept partial coverage for MVP — Hilma-only.** Hilma covers all EU-threshold + most above-minimum national procurements, which is where size matters most. Tarjouspalvelu-only tenders are typically below-threshold / smaller. Adding an AI extraction step for size adds cost + complexity without strong value signal. Revisit in Full scope if pilot feedback shows size is a decisive routing factor. |
 | 9 | Preliminary analysis — **restricted vs. open procedure** | Not extracted | ✅ **Done (2026-04-22):** Captured via Hilma's structural `procedureType` field (EU eForms code list: `open`, `restricted`, `neg-wo-call`, etc.). Propagates through `merge.py`, persisted to DB, rendered in email with Finnish translations. 74% of Hilma notices populated; blanks are correctly-blank prior-info / market-consultation notices. |
 | 10 | Preliminary analysis — **scoring mechanism (quality vs. price)** | Not extracted | ✅ **Done (2026-04-22):** New `extract.py` module uses OpenAI JSON mode to return `quality_weight`, `price_weight`, `scoring_basis` with evidence quote. Opt-in via `ENABLE_METADATA_EXTRACTION=1`. Conservative null-when-unknown behavior; structural price-only inference supported. |
 | 11 | Preliminary analysis — **contract included + reservations allowed** | Not extracted. Note: existing `contract_duration` / `contract_value` fields are for competitor analysis (winners), not this requirement. **Name collision risk** | ✅ **Done (2026-04-22):** Extracted by the same unified OpenAI call as #10. Field names `contract_included` / `reservations_allowed` deliberately distinct from competitor-analysis `contract_duration` / `contract_value`. Both booleans stored as `INTEGER` in SQLite (null / 0 / 1). |
 | 12 | Initial in-house routing | Three-tier working | ✅ No change |
-| 13 | Email to **agreed mailbox** (not direct to teams) | Currently sends to addresses in `routing_config.xlsx`. If addresses are real department emails, it goes direct. **No reviewer-gate code path.** | ✅ **Done (2026-04-22):** `REVIEWER_MODE=1` + `REVIEWER_EMAIL` env flags. When enabled, all per-department digests redirect to one reviewer; subject gets `[REVIEW → <dept>]` prefix; body gets a yellow "intended recipient" banner with forward instruction. Graceful fallback if `REVIEWER_EMAIL` is blank. |
+| 13 | Email to **agreed mailbox** (not direct to teams) | Currently sends to addresses in `config/routing_config.xlsx`. If addresses are real department emails, it goes direct. **No reviewer-gate code path.** | ✅ **Done (2026-04-22):** `REVIEWER_MODE=1` + `REVIEWER_EMAIL` env flags. When enabled, all per-department digests redirect to one reviewer; subject gets `[REVIEW → <dept>]` prefix; body gets a yellow "intended recipient" banner with forward instruction. Graceful fallback if `REVIEWER_EMAIL` is blank. |
 | 14 | Email contains **link to downloaded material** | Current email has a link to the tarjouspalvelu tender page. **No SharePoint link** (because no upload yet) | 🟡 Depends on #5 live verification. Once `sharepoint.py` upload is exercised end-to-end, capture the returned `webUrl` and add a `SharePoint link:` line to the digest — trivial follow-up. |
 | 15 | No direct routing to teams yet ("ei spämmää") | See #13 | ✅ **Done** via #13's REVIEWER_MODE flag. |
 | 16 | iCal for deadlines (nice-to-have) | Not built | ✅ **Done (2026-04-22):** new `ical.py` parses FI/EN date formats with DST-aware Helsinki tz conversion, emits RFC 5545 VCALENDAR with 2 VEVENTs per tender (question + tender deadline), attached as `text/calendar;method=PUBLISH` MIMEBase part. |
@@ -687,12 +687,41 @@ scraper → Blob container (staging)
 
 **Duration:** ~1 month shadow use, matching stakeholder's request.
 
+### 10.1 Weekly cadence
+
 | Week | Focus | Outputs |
 |---|---|---|
-| 1 | Deploy, runs nightly, emails to test inbox only | Daily digests reviewed by stakeholder |
-| 2 | Stakeholder feedback — routing rules tuning, keyword refinements, CPV tweaks | Updated `routing_config.xlsx` |
+| 1 | Deploy, runs nightly, emails to reviewer inbox only (`REVIEWER_MODE=1`) | Daily digests reviewed by stakeholder |
+| 2 | Stakeholder feedback — routing rules tuning, keyword refinements, CPV tweaks | Updated `config/routing_config.xlsx` |
 | 3 | Expand emails to 2–3 real department inboxes (willing early adopters) | Real-world feedback |
 | 4 | Full routing active, monitor deliverability and relevance | Go/no-go decision for full rollout |
+
+### 10.2 Acceptance criteria for go-live (end of week 4)
+
+The pilot is "successful" — and we remove `REVIEWER_MODE` and route digests
+direct to BU leaders — when **all** of the following hold for at least the
+final 5 consecutive business days:
+
+| # | Criterion | How to measure |
+|---|---|---|
+| 1 | Nightly run completes within 20 minutes | `[run-summary] duration_s` log line < 1200 |
+| 2 | Zero unexpected failures | No `Failed` Job executions; planned failures (e.g. Hilma 5xx) recovered next run |
+| 3 | Reviewer reports "routing is essentially right" | Subjective; reviewer agreement in writing |
+| 4 | Tier 3 (unmatched) rate ≤ 15 % of Tier 2 + Tier 3 combined | Coverage signal; high Tier 3 means keywords are stale |
+| 5 | False-positive rate in AI summaries ≤ 1 in 10 (irrelevant tagged "RELEVANT") | Reviewer counts during weekly check |
+| 6 | False-negative rate ≤ 1 in 50 (relevant tagged "NOT RELEVANT") | Reviewer cross-checks against Hilma manual sample |
+| 7 | All ZIP attachments for matched tenders successfully archived to SharePoint | Compare scraped tender count to SP folder file count |
+| 8 | Defender for Storage scanned every uploaded ZIP, no blocked production-relevant items | Defender for Cloud blade + alert log |
+| 9 | At least one real claim recorded via reply-tracker | Koontinäkymä `claimed` count > 0 |
+| 10 | Reviewer can describe in 2 sentences what each tier means and where to edit routing | Process-knowledge transfer check |
+
+If any criterion fails, extend the pilot one week and re-evaluate.
+
+### 10.3 Exit decisions
+
+- **Go:** remove `REVIEWER_MODE`, redirect digests to per-department BU leaders, leave reviewer mailbox in CC for one more month as backstop, then fully remove
+- **Extend:** keep reviewer gate, fix the failing criterion, re-evaluate after one more week
+- **No-go:** rare; would imply fundamental misalignment. Document why in the change log and convene stakeholder + Riku + Ville for a re-scope conversation.
 
 ---
 
@@ -761,6 +790,86 @@ scraper → Blob container (staging)
 - Access to CGI Container Registry or green-light to use a new ACR
 - DPSC approval
 
+### 12.4 Comprehensive work estimate (high level)
+
+§ 12.2 above lists Azure-team line items totalling 10–14 days. The full
+end-to-end estimate including phase 1a (personal-Azure simulation), the
+4-week pilot, and go-live cutover is:
+
+| Phase | Elapsed | Active developer days |
+|---|---|---|
+| Build (code + infra + smoke test) | **3–4 weeks** | **13–18 days** |
+| Pilot (shadow use) | 4 weeks | ~2 days (tuning, monitoring, dashboard polish) |
+| Go-live cutover (remove reviewer gate) | 2–3 days | 2–3 days |
+| **Total to production (steady-state)** | **~7–9 weeks** | **~17–23 days** |
+
+Matches `docs/project_spec.md` § 11 roadmap. Assumes one developer working
+continuously and CGI provisioning items (§ 12.3) arrive on time.
+
+### 12.5 Workstream detail
+
+Total: ~17–23 active developer days, distributed across 5 workstreams.
+
+**A. Remaining application code — ~3–5 days**
+
+| # | Item | Estimate |
+|---|---|---|
+| A1 | SharePoint upload module live verification (`app/sharepoint.py` exists) | 1–2 d |
+| A2 | Wire `share_url` into digest email | 0.25 d |
+| A3 | Ohjaustiedosto schema alignment + SharePoint-hosted Excel read | 0.5–1 d |
+| A4 | `app/reply_tracker.py` — Graph Mail polling, claim-state updates | 1.5 d |
+| A5 | `app/dashboard.py` — minimal koontinäkymä Jinja → static HTML | 1–2 d |
+
+**B. Infrastructure & deployment — ~5–7 days**
+
+| # | Item | Estimate |
+|---|---|---|
+| B1 | Dockerfile (file exists with the 3 known gotchas; verify build) | 0.5 d |
+| B2 | Bicep templates: RG, ACR, Container Apps Env + 2 Jobs, KV, Blob, Log Analytics, App Insights, MI, Entra App, Static Web App | 1.5–2 d |
+| B3 | GitHub Actions pipeline (skeleton exists) | 1 d |
+| B4 | Phase 1a — personal-Azure end-to-end simulation | 3–5 d |
+| B5 | Second Container Apps Job for reply-tracker (cron 2h) | 0.25 d |
+| B6 | Defender for Storage enablement (runbook ready) | 0.25 d |
+| B7 | Alerting rules + action group | 0.5 d |
+
+**C. Handover to CGI — ~2–3 days**
+
+| # | Item | Estimate |
+|---|---|---|
+| C1 | Migration: apply same Bicep to CGI tenant + secrets copy + endpoint swaps | 0.5–1 d |
+| C2 | DPSC documentation package (data flow + classification) | 1 d |
+| C3 | Production env config (3 parameter files) + cutover smoke test | 0.5 d |
+
+**D. Pilot — 4 weeks elapsed, ~2 dev days active**
+
+Per § 10. Mostly observation and reviewer feedback; active dev work limited
+to keyword tuning in `config/routing_config.xlsx` and minor fixes from
+edge cases the reviewer surfaces.
+
+**E. Go-live — ~2–3 days**
+
+Remove `REVIEWER_MODE`, redirect digests to BU leaders, ramp monitoring,
+keep reviewer in CC for one more month as backstop.
+
+### 12.6 Risks that can blow the estimate
+
+| Risk | Impact on schedule |
+|---|---|
+| CGI Azure / SharePoint / mailbox provisioning delays | +1–3 weeks elapsed (most common) |
+| DPSC review takes longer than expected | +1–4 weeks elapsed |
+| Cloudflare or Cloudia changes during build/pilot | +2–5 dev days for re-fix |
+| `config/routing_config.xlsx` keywords are wildly incomplete (high Tier 3 rate) | Pilot extension; no extra dev |
+| OpenAI cost overrun at production volume | Budget impact only; no schedule impact |
+| Bicep / Terraform / GitHub Actions / DevOps tooling debate stalls | +0.5–1 week per choice |
+
+### 12.7 What the estimate does NOT include
+
+- Future-scope features F1–F10 in § 3.2 (those are multi-quarter)
+- A separate UI dashboard project (only the minimal koontinäkymä is in MVP)
+- Sales / stakeholder communication time
+- Change-management training for CGI BU leaders (handled by stakeholder)
+- Post-pilot maintenance / on-call rota staffing
+
 ---
 
 ## 13. Non-goals / out of scope
@@ -811,3 +920,240 @@ _Note: "Can headless Chrome pass Cloudflare from an Azure datacenter IP?" — pr
 | Date | Author | Change |
 |---|---|---|
 | 2026-04-22 | Ville + Claude | Initial draft of project spec based on stakeholder requirements, today's headless validation, and Azure deployment planning |
+| 2026-04-27 | Ville + Claude | Repo restructured for Azure handover: production code consolidated into `app/`, deployment artifacts into `deploy/`, runtime state into `data/`. Entry point renamed `demo_scraper.py` → `app/main.py`. New `app/paths.py` centralises path resolution. Bare module references in this spec still refer to the same logical modules under `app/`. New stub modules `app/reply_tracker.py` and `app/dashboard.py` mark the two MVP code items still to be filled in (see § 12.2). |
+| 2026-04-27 | Ville + Claude | Added § 10.2 pilot acceptance criteria, expanded § 12 with comprehensive work estimate (12.4–12.7), added § 16 glossary of Finnish procurement terms, added § 17 key technical decisions log. |
+
+---
+
+## 16. Glossary — Finnish procurement terms
+
+For non-Finnish speakers on the Azure team. These terms appear throughout
+the codebase, the stakeholder requirements doc, and the digest email
+templates.
+
+### Procurement notice types
+
+| Finnish | Literal | What it actually means |
+|---|---|---|
+| **Tarjouspyyntö** | "Request for offer" | The main procurement notice — buyer publishes a tender, suppliers submit bids |
+| **Hankintailmoitus** | "Procurement notice" | Synonym for tarjouspyyntö in Hilma's vocabulary |
+| **Tietopyyntö** | "Information request" | Pre-procurement market exploration — buyer is gathering info, no bidding yet. Treat as an *early signal* — a tender is likely coming |
+| **Markkinavuoropuhelu** / **Markkinakartoitus** | "Market dialogue" / "Market mapping" | Same as tietopyyntö but more interactive; supplier roundtables, written input |
+| **Ennakkoilmoitus** | "Prior information notice" | Buyer signals they intend to procure something within 12 months. Earliest possible signal |
+| **Jälki-ilmoitus** | "Post notice" / "Award notice" | Published after a contract is awarded — names winner + price. Useful for `--mode=analytics` |
+| **Keskeytysilmoitus** | "Cancellation notice" | Buyer cancelled the procurement. Filtered out by `app/storage.py` |
+| **Suorahankinta** | "Direct procurement" | Buyer awarded the contract without competitive bidding (allowed in narrow cases). Not biddable |
+
+### Procurement procedures (eForms `procedureType` codes)
+
+| Code | Finnish | English |
+|---|---|---|
+| `open` | Avoin menettely | Open procedure — anyone can bid |
+| `restricted` | Rajattu menettely | Restricted — qualification round first, then invited bidders |
+| `neg-w-call` | Neuvottelumenettely (kilpailutuksella) | Negotiated with prior call for competition |
+| `neg-wo-call` | Neuvottelumenettely (ilman kilpailutusta) | Negotiated without prior call |
+| `comp-dial` | Kilpailullinen neuvottelumenettely | Competitive dialogue |
+| `comp-tend` | Tarjouskilpailu | Competitive tendering (national-only code) |
+| `innovation` | Innovaatiokumppanuus | Innovation partnership |
+| `dps` | Dynaaminen hankintajärjestelmä | Dynamic Purchasing System |
+| `des-cont` | Suunnittelukilpailu | Design contest |
+
+### Stakeholders & roles
+
+| Finnish | English | In CGI context |
+|---|---|---|
+| **Asiakasvastaava** | "Customer responsible" / Account manager | Per-area opportunity owner — primary contact in `routing_config.xlsx` |
+| **Hankintayksikkö** | "Procurement unit" | The buying organisation (city, hospital district, agency) |
+| **Toimittaja** | "Supplier" | Bidder. CGI is one of many in any given tender |
+| **Hyvinvointialue** | "Wellbeing area" | Finland's regional health/social-care administrative units (created 2023). Major IT customers |
+
+### Documents & artifacts
+
+| Finnish | English |
+|---|---|
+| **Sopimusluonnos** / **Hankintasopimus** | Draft contract / procurement contract |
+| **Liitteet** | Attachments — usually inside a `TarjousPyynnonLiitteet.zip` |
+| **Pisteytys** | Scoring (criteria + weights) |
+| **Vertailuperusteet** | Comparison criteria — how bids are scored |
+| **Soveltuvuus­vaatimukset** | Eligibility / qualification requirements |
+| **Varauma** | Reservation / caveat — supplier qualifies their bid. *"Varaumia ei hyväksytä"* = reservations not allowed |
+| **Tarjousaika** | Tender (bidding) period |
+| **Kysymysten määräaika** / **Kysymysten jätön määräaika** | Question deadline |
+| **Tarjouksen jätön määräaika** | Tender (bid submission) deadline |
+| **Hankintamenettely** | Procurement procedure (one of the codes above) |
+| **Kokonaishinta** | Total price |
+| **Kynnysarvo** | Threshold value — above which EU procurement rules apply |
+
+### Project-specific terms
+
+| Term | Meaning |
+|---|---|
+| **Ohjaustiedosto** | "Control file" — `config/routing_config.xlsx`. Stakeholder term for the Excel that defines department keyword routing |
+| **Koontinäkymä** | "Aggregated view" / overview dashboard — see § 3.3 |
+| **Oppo-työtila** / **Opportunity workspace** | Per-tender SharePoint workspace CGI manually creates downstream of staging library |
+| **Cloudia** | The vendor behind tarjouspalvelu.fi (now owned by Mercell) |
+| **Hilma** | Government-run procurement notice channel (hankintailmoitukset.fi) |
+| **Hansel Oy** | State-owned company that runs Hilma |
+| **Tier 1A / 1B / 2 / 3** | Routing tiers — see § 3.5 (1A = CGI own product mention; 1B = partner platform; 2 = department keyword match; 3 = unmatched) |
+| **DPSC** | Data Processing Security Classification — CGI internal data-classification process required before production |
+
+---
+
+## 17. Key technical decisions
+
+A handover-quality log of *why* the major choices in the codebase were
+made. Saves the Azure team relitigating each one. Each entry has a
+**Decision**, the **Rationale**, and **Reconsider when** — the trigger
+that should make us revisit.
+
+### 17.1 Browser automation
+
+**Decision:** `undetected-chromedriver 3.5.5` over Playwright / vanilla
+Selenium / Puppeteer.
+
+**Rationale:** Cloudflare Turnstile blocks all five Playwright variants we
+tested (sync, async, persistent context, stealth plugin, custom UA).
+`undetected-chromedriver` patches Chrome's automation indicators at the
+DevTools-protocol level and Turnstile auto-resolves without user
+interaction. Verified on Finnish residential IP (2026-04-21) and Azure
+B2s North Europe (2026-04-23).
+
+**Reconsider when:** Cloudflare changes the detection algorithm and
+breaks `undetected-chromedriver`. At that point, evaluate Playwright +
+`playwright-extra` + `puppeteer-extra-plugin-stealth` again; the maintainer
+ecosystem moves quickly.
+
+### 17.2 Compute target
+
+**Decision:** Azure Container Apps Jobs over Azure VM + cron, Azure
+Functions, or Logic Apps.
+
+**Rationale:** Ephemeral compute (no always-on cost), built-in cron, runs
+the same Docker image as locally. Functions can't reliably run Chrome.
+VM works (~€30/mo always-on) but is ~10× the running cost of a 7-min
+nightly Job. Logic Apps lacks a way to host Chrome at all.
+
+**Reconsider when:** the run grows past 30 minutes, or we need long-running
+state across runs (then a small worker VM might be simpler).
+
+### 17.3 Headless mode
+
+**Decision:** Chrome `--headless=new` is the default; visible mode is for
+local debug only.
+
+**Rationale:** Verified bit-for-bit identical scrape output between visible
+and headless modes (1,612 search results, same metadata, same ZIP file
+size — 18,863 KB; 2026-04-22 comparison run). Removes the need for Xvfb
+in containers.
+
+**Reconsider when:** A new tarjouspalvelu UI feature behaves differently
+in headless mode (browser detection signals can change).
+
+### 17.4 Database
+
+**Decision:** SQLite, downloaded from Blob at start and uploaded at exit.
+
+**Rationale:** This scale (300–500 tenders/day, all writes from one
+process) doesn't justify a managed database. Blob round-trip adds < 5
+seconds. Eliminates Azure SQL cost (~€15–40/mo) and a connection-string
+secret. Schema migrations via idempotent `ALTER TABLE … ADD COLUMN` in
+`app/storage.py:init_db()`.
+
+**Reconsider when:** Multiple processes need concurrent write access (e.g.
+the dashboard becomes interactive), or the DB grows past ~100 MB.
+
+### 17.5 Routing as Excel, not code
+
+**Decision:** Tier 2 routing rules live in `config/routing_config.xlsx`,
+read at run time via `openpyxl`, with the file edited by non-technical
+CGI users.
+
+**Rationale:** Stakeholder explicitly asked for this — keyword tweaks +
+new departments are the most frequent change, and they shouldn't require
+a deployment. Excel is the universal format for non-developers.
+
+**Reconsider when:** The number of rules exceeds ~50 (Excel becomes hard
+to scan) or rule logic grows beyond keyword OR (e.g. need AND, NOT,
+regex). At that point, consider a small admin UI on top of a structured
+data store.
+
+### 17.6 AI provider
+
+**Decision:** OpenAI direct (`openai` SDK), default model `gpt-4o-mini`
+for production runs, `gpt-4.1-nano` for cheap dev.
+
+**Rationale:** Cost and quality both fit. `gpt-4o-mini` is ~€0.15 per 1M
+input tokens; ~€0.001 per tender summary. Azure OpenAI is the obvious
+alternative if CGI prefers in-tenant inference, but as of 2026-04 has
+limited model parity with OpenAI direct.
+
+**Reconsider when:** CGI compliance requires data not leave the tenant
+(then switch to Azure OpenAI), or model pricing shifts substantially.
+
+### 17.7 Reviewer-gate pilot
+
+**Decision:** During the 4-week pilot, ALL digest emails route to one
+reviewer mailbox via `REVIEWER_MODE=1`, not to BU leaders.
+
+**Rationale:** Stakeholder explicit: *"ei kuitenkaan spämmää yet"* — don't
+spam the organisation before the routing is proven. The reviewer manually
+forwards correctly-routed digests, generating tight feedback loop on the
+ohjaustiedosto.
+
+**Reconsider when:** Pilot acceptance criteria (§ 10.2) all pass —
+remove the gate.
+
+### 17.8 SharePoint upload via Microsoft Graph
+
+**Decision:** Use Graph API (`msal` + raw `requests`) over the `msgraph-sdk`,
+in three explicit auth modes (personal OneDrive / delegated / app-only).
+
+**Rationale:** Graph is the only sanctioned write path into SharePoint
+since the SOAP CSOM deprecation. Three modes keep the dev / pilot / prod
+paths distinct and let us prove the pipeline against personal OneDrive
+before any CGI tenant is involved. Raw `requests` over the SDK because
+Graph upload sessions are simple HTTP and we wanted minimal dependency
+surface in the container image.
+
+**Reconsider when:** Graph adds new SharePoint primitives we want to use
+(retention labels, versioning hooks) — `msgraph-sdk` may then earn its
+weight.
+
+### 17.9 Antivirus via Defender for Storage
+
+**Decision:** Microsoft Defender for Storage scans every blob on upload
+in the staging container, before SharePoint upload.
+
+**Rationale:** Native Azure, no extra container or daemon, ~€0.15 per
+1,000 transactions. ClamAV in the container would work but lacks
+centralised alerting via Defender for Cloud / Azure Sentinel.
+
+**Reconsider when:** Defender pricing changes drastically, or CGI already
+mandates a different AV vendor.
+
+### 17.10 Claim tracking via email reply
+
+**Decision:** Recipients claim a tender by replying to the digest email;
+`app/reply_tracker.py` polls the service mailbox via Graph and records
+the claim. No clickable UI in MVP.
+
+**Rationale:** People already reply to emails. No new tool to learn, no
+auth surface to build. Subject pattern `[TENDER-<tp_id>]` is parseable.
+Auto-reply / OOO filtering documented in `docs/project_spec.md` § 3.4.2.
+
+**Reconsider when:** Recipients ask for a claim button (which is a sign
+the dashboard should grow into a real interactive app — out of MVP).
+
+### 17.11 Path resolution
+
+**Decision:** `app/paths.py` is the single source of truth for every
+filesystem path. Modules import constants (`DB_PATH`, `ENV_PATH`,
+`CHROME_PROFILE`, `DOWNLOADS`, `PREVIEWS_DIR`); they never compute
+their own `__file__`-based paths.
+
+**Rationale:** Before the 2026-04-27 refactor each module did
+`os.path.join(os.path.dirname(os.path.abspath(__file__)), …)`. Moving
+files between folders meant chasing 12 path bugs. Centralisation made
+the refactor safe.
+
+**Reconsider when:** Never. This is just hygiene.

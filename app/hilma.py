@@ -15,7 +15,9 @@ import urllib3
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+from .paths import ENV_PATH
+
+load_dotenv(ENV_PATH)
 
 # Disable SSL warnings (Zscaler intercept)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)

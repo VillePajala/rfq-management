@@ -1,12 +1,11 @@
 """
 Simple file logger for the tender scraper.
-Writes to scraper.log so both the user and AI can review what happened.
+Writes to data/scraper.log so both the user and AI can review what happened.
 """
 
-import os
 from datetime import datetime
 
-LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scraper.log")
+from .paths import LOG_PATH
 
 
 def clear_log():

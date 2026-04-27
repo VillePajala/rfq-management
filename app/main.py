@@ -19,11 +19,13 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import TimeoutException
 
-# Load credentials from .env (never hardcoded, never sent to cloud)
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+from .paths import ENV_PATH, CHROME_PROFILE, DOWNLOADS, DEMO_RESULTS
 
-PROFILE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chrome_profile")
-DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
+# Load credentials from .env (never hardcoded, never sent to cloud)
+load_dotenv(ENV_PATH)
+
+PROFILE_DIR = str(CHROME_PROFILE)
+DOWNLOADS_DIR = str(DOWNLOADS)
 
 # Known organization IDs on tarjouspalvelu.fi
 ORGANIZATIONS = {
@@ -36,7 +38,7 @@ ORGANIZATIONS = {
 }
 
 
-from logger import log_to_file, clear_log
+from .logger import log_to_file, clear_log
 
 
 def log(msg: str):
@@ -762,7 +764,7 @@ def scrape_detail_page(driver, tender: dict) -> bool:
         # three stakeholder-requested checks (see extract.py).
         if os.getenv("ENABLE_METADATA_EXTRACTION", "0") == "1":
             try:
-                from extract import apply_metadata
+                from .extract import apply_metadata
                 apply_metadata(tender)
                 log(f"  Scoring: quality={tender.get('quality_weight')} "
                     f"price={tender.get('price_weight')} "
@@ -829,7 +831,7 @@ def scrape_detail_page(driver, tender: dict) -> bool:
                             # once GRAPH_* + SHAREPOINT_* env vars are set.
                             if os.getenv("ENABLE_SHAREPOINT_UPLOAD", "0") == "1":
                                 try:
-                                    from sharepoint import upload_tender_zip
+                                    from .sharepoint import upload_tender_zip
                                     share_url = upload_tender_zip(filepath, tender)
                                     if share_url:
                                         tender["sharepoint_url"] = share_url
@@ -954,7 +956,7 @@ def extract_notices(driver, org_slug: str, max_pages: int = 5,
         log("⚠️  ZERO TENDERS EXTRACTED — likely silent login failure, Cloudflare "
             "block, or UI selector drift. Investigate before trusting the run.")
         try:
-            from notify import send_email
+            from .notify import send_email
             alert_to = os.getenv("REVIEWER_EMAIL") or os.getenv("SMTP_USER")
             if alert_to:
                 send_email(
@@ -1087,10 +1089,10 @@ def scrape_notices(org_slug: str, mode: str = "tenders") -> list[dict]:
 
 
 def main():
-    from storage import store_tenders, get_stats, classify_tender, mark_notified
-    from routing import route_all_tenders, CONFIG_PATH
-    from summarize import summarize_tenders
-    from analyze import analyze_results, print_competitor_report, print_price_report
+    from .storage import store_tenders, get_stats, classify_tender, mark_notified
+    from .routing import route_all_tenders, CONFIG_PATH
+    from .summarize import summarize_tenders
+    from .analyze import analyze_results, print_competitor_report, print_price_report
 
     clear_log()
 
@@ -1110,7 +1112,7 @@ def main():
 
     # Offline mode: replay from saved demo_results.json (no browser needed)
     if mode == "offline":
-        results_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo_results.json")
+        results_file = str(DEMO_RESULTS)
         if not os.path.exists(results_file):
             print(f"\n  ERROR: No saved results at {results_file}")
             print(f"  Run a live scrape first (--mode=tenders) to generate demo_results.json")
@@ -1129,8 +1131,8 @@ def main():
 
     elif mode == "combined":
         # Combined mode: Hilma API + tarjouspalvelu.fi scraping + merge
-        from hilma import search_cgi_relevant
-        from merge import merge_sources
+        from .hilma import search_cgi_relevant
+        from .merge import merge_sources
 
         hilma_days = int(os.getenv("HILMA_DAYS", "7"))
         print(f"  Mode: COMBINED (Hilma API + tarjouspalvelu.fi)")
@@ -1248,7 +1250,7 @@ def main():
 
     # Save full results
     print()
-    output_json = os.getenv("OUTPUT_JSON", "demo_results.json")
+    output_json = os.getenv("OUTPUT_JSON", str(DEMO_RESULTS))
     with open(output_json, "w", encoding="utf-8") as f:
         json.dump(notices, f, ensure_ascii=False, indent=2)
     log(f"Full results saved to {output_json}")
@@ -1308,7 +1310,7 @@ def main():
         # Send emails if enabled
         if os.getenv("ENABLE_EMAIL", "0") == "1":
             log_step(11, "SENDING NOTIFICATIONS")
-            from notify import send_notifications
+            from .notify import send_notifications
             max_emails = int(os.getenv("MAX_EMAILS", "0"))
             log("Sending Tier 2 department digest emails...")
             if max_emails > 0:

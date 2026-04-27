@@ -15,9 +15,11 @@ import os
 import json
 from openai import OpenAI
 from dotenv import load_dotenv
-from storage import get_unanalyzed_results, store_award_analysis, update_competitor
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+from .paths import ENV_PATH
+from .storage import get_unanalyzed_results, store_award_analysis, update_competitor
+
+load_dotenv(ENV_PATH)
 
 EXTRACTION_PROMPT = """You are analyzing a Finnish public sector tender award/result notice.
 Extract the following information from the tender. Return a JSON object with these fields:
@@ -135,7 +137,7 @@ def analyze_results(max_count: int = None) -> dict:
 
 def print_competitor_report():
     """Print a summary of known competitors."""
-    from storage import get_competitors
+    from .storage import get_competitors
     competitors = get_competitors(min_wins=1)
     if not competitors:
         print("  No competitor data yet.")
@@ -159,7 +161,7 @@ def print_competitor_report():
 
 def print_price_report():
     """Print a summary of price intelligence by sector."""
-    from storage import get_price_history
+    from .storage import get_price_history
     prices = get_price_history()
     if not prices:
         print("  No price data yet.")

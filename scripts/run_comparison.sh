@@ -16,7 +16,7 @@
 # Exit codes: 0 = both runs completed. 1 = visible failed. 2 = headless failed.
 
 set -u
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 source venv/bin/activate
 
 # Force unbuffered stdout so `tee` shows log lines as they happen,
@@ -49,10 +49,10 @@ echo ""
 echo "=========================================================="
 echo "  RUN 1: VISIBLE (undetected-chromedriver, windowed)"
 echo "=========================================================="
-rm -f tenders.db
+rm -f data/tenders.db
 export HEADLESS=0
-export OUTPUT_JSON=demo_results_visible.json
-python demo_scraper.py "$MODE" 2>&1 | tee scraper_visible.log
+export OUTPUT_JSON=scratch/demo_results_visible.json
+python -m app.main "$MODE" 2>&1 | tee scratch/scraper_visible.log
 visible_rc=${PIPESTATUS[0]}
 if [ "$visible_rc" -ne 0 ]; then
   echo "VISIBLE run failed (rc=$visible_rc) — aborting." >&2
@@ -64,10 +64,10 @@ echo ""
 echo "=========================================================="
 echo "  RUN 2: HEADLESS (Chrome --headless=new)"
 echo "=========================================================="
-rm -f tenders.db
+rm -f data/tenders.db
 export HEADLESS=1
-export OUTPUT_JSON=demo_results_headless.json
-python demo_scraper.py "$MODE" 2>&1 | tee scraper_headless.log
+export OUTPUT_JSON=scratch/demo_results_headless.json
+python -m app.main "$MODE" 2>&1 | tee scratch/scraper_headless.log
 headless_rc=${PIPESTATUS[0]}
 if [ "$headless_rc" -ne 0 ]; then
   echo "HEADLESS run failed (rc=$headless_rc)." >&2
@@ -79,4 +79,4 @@ echo ""
 echo "=========================================================="
 echo "  DIFF"
 echo "=========================================================="
-python compare_runs.py demo_results_visible.json demo_results_headless.json
+python tests/compare_runs.py scratch/demo_results_visible.json scratch/demo_results_headless.json

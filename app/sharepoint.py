@@ -40,7 +40,9 @@ from typing import Optional
 import requests
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+from .paths import ENV_PATH, GRAPH_TOKEN_CACHE
+
+load_dotenv(ENV_PATH)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 # Scopes for personal OneDrive (mode 1). Sites.ReadWrite.All doesn't apply
@@ -49,8 +51,7 @@ SCOPES_ONEDRIVE_PERSONAL = ["Files.ReadWrite"]
 # Scopes for SharePoint sites / OneDrive-for-Business (modes 2+3).
 SCOPES_SHAREPOINT = ["Files.ReadWrite.All", "Sites.ReadWrite.All"]
 SCOPES_APP_ONLY = ["https://graph.microsoft.com/.default"]
-TOKEN_CACHE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                ".graph_token_cache.bin")
+TOKEN_CACHE_PATH = str(GRAPH_TOKEN_CACHE)
 SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024  # Graph hard limit for single-PUT is 4 MB
 CHUNK_SIZE = 5 * 1024 * 1024           # must be multiple of 320 KiB; 5 MiB qualifies
 

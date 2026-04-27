@@ -30,7 +30,9 @@ from typing import Optional
 from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+from .paths import ENV_PATH
+
+load_dotenv(ENV_PATH)
 
 
 def _client() -> OpenAI:

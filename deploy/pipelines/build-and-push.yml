@@ -1,0 +1,54 @@
+# Tender Intelligence — build, push, deploy
+#
+# SKELETON — CI tool choice (GitHub Actions vs. Azure DevOps) is a CGI
+# standardisation decision (docs/project_spec.md § 14 open question 7).
+# Below assumes GitHub Actions; port to ADO if needed.
+#
+# Triggers on push to main. PRs run a build-only lane (no push) — add when
+# branch protection is set up.
+
+name: build-and-push
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # for OIDC federation to Azure
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name ${{ secrets.ACR_NAME }}
+
+      - name: Build image
+        run: |
+          IMAGE=${{ secrets.ACR_NAME }}.azurecr.io/tender-intelligence
+          docker build \
+            -f deploy/Dockerfile \
+            -t $IMAGE:latest \
+            -t $IMAGE:sha-${{ github.sha }} \
+            .
+
+      - name: Push image
+        run: |
+          IMAGE=${{ secrets.ACR_NAME }}.azurecr.io/tender-intelligence
+          docker push $IMAGE:latest
+          docker push $IMAGE:sha-${{ github.sha }}
+
+      # TODO: trigger an immediate test execution of the Job to validate
+      # the new image, before the next scheduled run picks it up.
+      # - name: Trigger Job test run
+      #   run: az containerapp job start --name scraper-job --resource-group rg-tender-intelligence-prod

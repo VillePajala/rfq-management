@@ -6,10 +6,9 @@ Tracks all tenders, flags new ones, and provides filtering.
 
 import sqlite3
 import json
-import os
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tenders.db")
+from .paths import DB_PATH
 
 
 def get_db() -> sqlite3.Connection:

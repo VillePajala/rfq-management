@@ -1,0 +1,31 @@
+# Build context exclusions — keeps the image small and free of local state
+.env
+.git
+.gitignore
+.venv
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Folders that are local-dev-only or huge
+data/
+scratch/
+tests/
+tools/
+docs/
+scripts/
+.claude/
+
+# Infra files — they configure the deployment, they aren't part of the runtime
+deploy/
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+
+# Top-level docs that aren't needed in the image
+README.md
+*.md

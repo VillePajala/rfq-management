@@ -37,7 +37,7 @@ Ordered for low-risk wins first, SharePoint big-rock last.
 - [x] **1. Extract question deadline** (`question_deadline`) — _done 2026-04-22_
   - Stakeholder: *"milloin kysymysten jättö, milloin tarjouksen jättö"*
   - Currently only tender deadline persisted. Question deadline visible in detail tabs but not captured as structured field.
-  - **Files:** `demo_scraper.py` (tab scrape), `storage.py` (DB schema), `notify.py` (email template)
+  - **Files:** `app/main.py` (tab scrape), `storage.py` (DB schema), `notify.py` (email template)
   - **Definition of done:** `question_deadline` key present in tender dict; visible in email; persisted to DB.
   - Implementation: `_extract_question_deadline()` helper parses Summary-tab text for either `Kysymysten jätön määräaika` (FI) or `Deadline for submitting questions` (EN) label and returns the next line as the value. Verified live on tender 608992 (`27.4.2026 9.00 (UTC+03:00)`) — extracted, persisted to JSON + SQLite, renders in the email.
 
@@ -83,7 +83,7 @@ Ordered for low-risk wins first, SharePoint big-rock last.
 - [x] **7. Build reviewer-gate mechanism** — _done 2026-04-22_
   - Stakeholder: *"ei kuitenkaan spämmää yet"*
   - Add `REVIEWER_MODE=1` + `REVIEWER_EMAIL` env flags that override per-department recipients; all digest emails go to the reviewer during pilot.
-  - Alternative (no code): populate `routing_config.xlsx` with the reviewer's email for every row.
+  - Alternative (no code): populate `config/routing_config.xlsx` with the reviewer's email for every row.
   - **Definition of done:** when `REVIEWER_MODE=1`, all emails land at `REVIEWER_EMAIL`; subject/body show the proposed "real" recipients so the reviewer knows where to forward.
   - Implementation: `REVIEWER_MODE=1` + `REVIEWER_EMAIL` env vars in `notify.py`. When enabled: (a) every digest email routes to `REVIEWER_EMAIL` instead of the per-department BU-leader address; (b) subject line becomes `[REVIEW → <dept>] … — would go to <intended_email>`; (c) body gets a yellow warning banner showing the intended department, intended recipient, and forward instruction. Missing `REVIEWER_EMAIL` is handled gracefully (logs warning, falls back to per-department addresses). Added to `.env.example` with comment. Smoke-tested in both modes: reviewer-on routes correctly to `reviewer@cgi.com` with banner; reviewer-off preserves existing behavior.
 

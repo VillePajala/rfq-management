@@ -4,33 +4,52 @@ CGI project to automate Finnish public sector tender monitoring from tarjouspalv
 
 ## Project Structure
 
+Refactored 2026-04-27 into a clean app / deploy / docs / config / data
+layout. Imports inside `app/` use relative imports (`from .storage import …`)
+and all path resolution is centralised in `app/paths.py` — modules never
+compute their own `__file__`-based paths.
+
 ```
 rfq-management/
-├── demo_scraper.py          # Main pipeline: scrape → classify → summarize → route → notify → analyze
-├── hilma.py                 # Hilma API client (hankintailmoitukset.fi) — structured tender data, CPV codes
-├── merge.py                 # Merge + deduplicate tenders from Hilma and tarjouspalvelu.fi
-├── storage.py               # SQLite: tenders, award_analysis, competitors tables. Classification logic.
-├── routing.py               # Three-tier routing: Tier 1 (products) + Tier 2 (keywords from Excel) + Tier 3
-├── cgi_products.py          # CGI own products (34), partner platforms (75), competitors (20)
-├── notify.py                # Email: one HTML digest per department via SMTP
-├── summarize.py             # OpenAI: tender summaries (model configurable via OPENAI_MODEL env)
-├── analyze.py               # Award results analysis: extract winners, prices, build competitor profiles
-├── logger.py                # File logger — writes to scraper.log
-├── app.py                   # Streamlit web dashboard (not tested recently — may need fixes)
-├── create_presentation.py   # Generates CGI PowerPoint (outputs to project dir + Windows desktop)
-├── run_demo.sh              # Demo script: fast run with emails enabled, good AI model
-├── run_offline_demo.sh      # Offline demo: replays saved data, no browser needed
-├── routing_config.xlsx      # Tier 2 routing rules (auto-generated, editable by non-technical users)
-├── email_sample.html        # Mock email for presentation screenshot
-├── cgi_products.py          # Product/platform/competitor matching with word boundary support
-├── tenders.db               # SQLite database (auto-created, gitignored)
-├── scraper.log              # Run log (auto-created, gitignored)
-├── chrome_profile/          # Persistent Chrome profile (Zscaler certs, session)
-├── cgi_template.pptx        # CGI PowerPoint template (converted from .potx)
-├── .env                     # Credentials (NEVER committed)
-├── .env.example             # Template for credentials
-├── .gitignore               # Excludes .env, DB, Chrome profile, screenshots, logs
-└── README.md                # Full project documentation (may be outdated — CLAUDE.md is authoritative)
+├── app/                     ★ Production application package
+│   ├── main.py              — entry point (was demo_scraper.py); run via `python -m app.main`
+│   ├── paths.py             — central path resolution (.env, data/, config/)
+│   ├── hilma.py             — Hilma API client
+│   ├── merge.py             — Hilma + tarjouspalvelu deduplication
+│   ├── storage.py           — SQLite (tenders, award_analysis, competitors)
+│   ├── routing.py           — three-tier routing engine (reads config/routing_config.xlsx)
+│   ├── cgi_products.py      — products / platforms / competitors with word-boundary matching
+│   ├── notify.py            — email digest builder + SMTP send (+ iCal attachment)
+│   ├── summarize.py         — OpenAI tender summaries
+│   ├── extract.py           — OpenAI metadata extraction (scoring / contract / reservations)
+│   ├── analyze.py           — award winner / price / competitor extraction
+│   ├── ical.py              — RFC 5545 .ics generator for tender deadlines
+│   ├── sharepoint.py        — Graph API upload (3 modes: personal OD / SP delegated / SP app-only)
+│   ├── reply_tracker.py     — STUB: Graph Mail polling for claim-state updates
+│   ├── dashboard.py         — STUB: koontinäkymä static HTML generator
+│   └── logger.py            — file logger → data/scraper.log
+│
+├── deploy/                  ★ Azure deployment artifacts
+│   ├── README.md            — Azure team handbook
+│   ├── Dockerfile           — Python 3.12 + Chrome + setuptools shim + dev-shm gotcha
+│   ├── .dockerignore
+│   ├── infra/main.bicep     — Bicep skeleton (modules/ to be filled in)
+│   └── pipelines/build-and-push.yml  — GitHub Actions skeleton
+│
+├── docs/                    Specs, runbooks, architecture HTML
+├── config/routing_config.xlsx  — Tier 2 routing rules (CGI users edit this)
+├── scripts/                 run_demo.sh, run_offline_demo.sh, run_comparison.sh
+├── tests/                   compare_runs.py, test_anonymous.py, test_headless.py
+├── tools/                   PoC / sales tooling — NOT deployed
+│   ├── create_presentation.py + cgi_template.pptx + presentation_assets/
+│   └── streamlit_dashboard.py   (untested, may need fixes)
+├── data/                    Runtime state (gitignored, auto-created)
+│   ├── tenders.db, scraper.log, downloads/, chrome_profile/, previews/, demo_results.json
+├── scratch/                 Debug artifacts (HTML/PNG/JSON dumps) — gitignored
+├── .env / .env.example      Credentials (.env gitignored)
+├── requirements.txt         Production deps
+├── requirements-dev.txt     Streamlit + python-pptx + Pillow (PoC tools)
+└── README.md                Public docs (CLAUDE.md is the authoritative dev reference)
 ```
 
 ## What Actually Works (verified 2026-04-09)
@@ -166,26 +185,26 @@ HILMA_API_KEY=              # Hilma API key (free, from developer portal)
 ```bash
 # Development run (no emails, cheap AI, fast)
 source venv/bin/activate
-rm -f tenders.db
-python demo_scraper.py --mode=tenders
+rm -f data/tenders.db
+python -m app.main --mode=tenders
 
 # Demo run (emails ON, good AI model)
-./run_demo.sh
+./scripts/run_demo.sh
 
-# Offline demo (no browser — replays from saved demo_results.json)
-./run_offline_demo.sh
+# Offline demo (no browser — replays from data/demo_results.json)
+./scripts/run_offline_demo.sh
 
 # Combined run (Hilma API + tarjouspalvelu.fi — best coverage)
-HILMA_DAYS=7 python demo_scraper.py --mode=combined
+HILMA_DAYS=7 python -m app.main --mode=combined
 
 # Analytics run (award results for price/competitor intelligence)
-python demo_scraper.py --mode=analytics
+python -m app.main --mode=analytics
 
-# Dashboard
-streamlit run app.py
+# Streamlit dashboard (PoC tooling, requires requirements-dev.txt)
+streamlit run tools/streamlit_dashboard.py
 
-# Regenerate PowerPoint (saves to project + Windows desktop)
-python create_presentation.py
+# Regenerate PowerPoint (PoC tooling, requires requirements-dev.txt)
+python tools/create_presentation.py
 ```
 
 ## Presentation

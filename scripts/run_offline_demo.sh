@@ -3,11 +3,11 @@
 # Requires: demo_results.json from a previous live run
 # Usage: ./run_offline_demo.sh
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 source venv/bin/activate
 
 # Clean DB for fresh demo
-rm -f tenders.db
+rm -f data/tenders.db
 
 # Demo settings — same as live demo but offline
 export ENABLE_EMAIL=1              # Send real emails (or preview if no SMTP creds)
@@ -22,4 +22,4 @@ echo "  ║   OFFLINE DEMO — no browser, uses saved data     ║"
 echo "  ╚═══════════════════════════════════════════════════╝"
 echo ""
 
-python demo_scraper.py --mode=offline
+python -m app.main --mode=offline

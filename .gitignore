@@ -1,13 +1,28 @@
+# Secrets
 .env
 .graph_token_cache.bin
+
+# Runtime state — auto-created at run time, never committed
+data/
+scratch/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Legacy patterns (kept for safety in case anything regenerates at root)
 tenders.db
 scraper*.log
 chrome_profile/
 chrome_profile_headless/
 downloads/
-venv/
-__pycache__/
-*.pyc
 demo_results*.json
 screenshot_*.png
 page_text_*.txt

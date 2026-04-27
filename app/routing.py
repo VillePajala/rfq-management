@@ -9,9 +9,9 @@ Tier 3:  No match → dashboard only, no email
 
 import os
 from openpyxl import Workbook, load_workbook
-from cgi_products import match_products, match_competitors
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "routing_config.xlsx")
+from .cgi_products import match_products, match_competitors
+from .paths import ROUTING_CONFIG as CONFIG_PATH
 
 COLUMNS = {
     "A": "Keywords",

@@ -8,7 +8,9 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+from .paths import ENV_PATH
+
+load_dotenv(ENV_PATH)
 
 SYSTEM_PROMPT = """You are a tender analyst for CGI Finland. Your job is to assess whether a public sector tender is relevant to CGI and produce a concise brief.
 
