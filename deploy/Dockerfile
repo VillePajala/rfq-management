@@ -16,6 +16,9 @@
 #   3. Container needs ≥ 2 GB RAM. B1s (1 GB) causes Chromedriver OOM
 #      timeouts in headless mode. Container Apps Job profile must be
 #      ≥ 2 vCPU / 4 GB.
+#   4. Microsoft ODBC Driver 18 + unixodbc-dev are required so SQLAlchemy
+#      can talk to Azure SQL via pyodbc when DATABASE_URL is set. Without
+#      them, pyodbc fails to import and storage falls back to SQLite.
 
 FROM python:3.12-slim AS base
 
@@ -25,16 +28,19 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Install Chrome + system deps in one layer.
+# Install Chrome + Microsoft ODBC + system deps in one layer.
 # Chrome from Google's apt repo (stable channel).
+# msodbcsql18 from Microsoft's apt repo (for pyodbc -> Azure SQL).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        wget gnupg ca-certificates fonts-liberation \
+        wget curl gnupg ca-certificates fonts-liberation unixodbc-dev gcc g++ \
         libasound2 libatk-bridge2.0-0 libatk1.0-0 libcups2 libdbus-1-3 \
         libdrm2 libgbm1 libgtk-3-0 libnspr4 libnss3 libxcomposite1 \
         libxdamage1 libxfixes3 libxkbcommon0 libxrandr2 xdg-utils \
     && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
+    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/microsoft.list \
+    && apt-get update && ACCEPT_EULA=Y apt-get install -y --no-install-recommends google-chrome-stable msodbcsql18 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/tender

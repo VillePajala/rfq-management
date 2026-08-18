@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tender Intelligence — Production Architecture & Process</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+            margin: 40px auto;
+            max-width: 1280px;
+            padding: 0 24px;
+            color: #222;
+            line-height: 1.55;
+        }
+        h1 {
+            color: #0079c1;
+            border-bottom: 3px solid #0079c1;
+            padding-bottom: 10px;
+            font-size: 28px;
+            margin-bottom: 6px;
+        }
+        h2 {
+            color: #0079c1;
+            margin-top: 48px;
+            font-size: 22px;
+            border-left: 4px solid #0079c1;
+            padding-left: 12px;
+        }
+        h3 {
+            color: #333;
+            font-size: 16px;
+            margin-top: 24px;
+        }
+        .meta {
+            color: #666;
+            font-size: 13px;
+            margin: 4px 0 24px;
+        }
+        section {
+            margin-bottom: 56px;
+        }
+        .mermaid {
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 24px;
+            margin: 16px 0;
+            text-align: center;
+        }
+        .callout {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .callout strong { color: #664d03; }
+        .info {
+            background: #e8f4fd;
+            border-left: 4px solid #0079c1;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 16px 0;
+            font-size: 14px;
+        }
+        th {
+            background: #0079c1;
+            color: white;
+            text-align: left;
+            padding: 8px 12px;
+        }
+        td {
+            border-bottom: 1px solid #e0e0e0;
+            padding: 8px 12px;
+            vertical-align: top;
+        }
+        tr:nth-child(even) td { background: #f9f9f9; }
+        code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+        }
+        .legend {
+            font-size: 13px;
+            color: #555;
+            margin-top: 8px;
+            font-style: italic;
+        }
+        footer {
+            margin-top: 64px;
+            padding-top: 16px;
+            border-top: 1px solid #e0e0e0;
+            color: #777;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tender Intelligence — Production Architecture &amp; Process</h1>
+    <p class="meta">Drafted 2026-04-27. Reflects the production-target topology, not the local PoC. Companion to <code>docs/project_spec.md</code> § 4 (architecture) and § 5 (resources).</p>
+
+    <div class="callout">
+        <strong>Architectural change from PoC:</strong> production uses <strong>Azure SQL Database (Serverless)</strong> instead of SQLite-in-Blob. Reason: analytics readiness — Power BI, ad-hoc T-SQL, and the future intelligence features (F4–F7) all need a queryable multi-reader store, and migrating later is more painful than starting right. Application code is unchanged except for the connection string. Cost delta: ~€15–40/month on top of the ~€10 infra base.
+    </div>
+
+    <!-- =========================================== -->
+    <!-- DIAGRAM 1: SYSTEM ARCHITECTURE              -->
+    <!-- =========================================== -->
+    <section>
+        <h2>1. System architecture</h2>
+        <p>Azure-resident components live in CGI's tenant. External services (Hilma, tarjouspalvelu.fi, OpenAI) are reached over the public internet. Both Container Apps Jobs share the same Key Vault, Storage account, and Azure SQL Database. Managed Identity binds the Jobs to Azure resources so no secret ever touches the image.</p>
+
+        <div class="mermaid">
+flowchart TB
+    classDef azure fill:#e8f4fd,stroke:#0079c1,stroke-width:2px,color:#000
+    classDef ext fill:#fff3e0,stroke:#e67e22,stroke-width:2px,color:#000
+    classDef store fill:#f3e5f5,stroke:#9b59b6,stroke-width:2px,color:#000
+    classDef cron fill:#eceff1,stroke:#546e7a,stroke-width:1px,color:#000
+    classDef sec fill:#e8f5e9,stroke:#2ecc71,stroke-width:2px,color:#000
+
+    SC{{Cron 06:00 EEST<br/>daily}}:::cron
+    RC{{Cron every 2 h<br/>weekdays 09–17}}:::cron
+
+    subgraph Azure["Azure — CGI Public tenant (region: North Europe)"]
+        direction TB
+        subgraph CAE["Container Apps Environment"]
+            JS["Scraper Job<br/>2 vCPU / 4 GB / 20-min timeout"]:::azure
+            JR["Reply Tracker Job<br/>0.5 vCPU / 1 GB"]:::azure
+        end
+        SQL[("Azure SQL Database<br/>Serverless GP, auto-pause<br/>tenders + awards + claims + history")]:::store
+        BLOB[("Blob Storage<br/>staging container — ZIPs<br/>Defender for Storage on")]:::store
+        KV[("Key Vault<br/>secrets")]:::store
+        ACR[("Container Registry<br/>image storage")]:::store
+        LA[("Log Analytics<br/>+ App Insights")]:::store
+        SWA["Static Web App<br/>koontinäkymä<br/>Entra ID app auth"]:::azure
+        MI(["Managed Identity"]):::sec
+    end
+
+    subgraph Ext["External services"]
+        H["Hilma API<br/>REST, free, CPV-filtered"]:::ext
+        T["tarjouspalvelu.fi<br/>browser auto via undetected-chromedriver"]:::ext
+        AI["OpenAI API<br/>gpt-4o-mini summaries + extractions"]:::ext
+        SP[("CGI SharePoint<br/>staging library<br/>final document home")]:::ext
+        M365["CGI M365<br/>service mailbox<br/>Send + Read via Graph"]:::ext
+    end
+
+    SC --> JS
+    RC --> JR
+
+    JS -.fetch secrets.-> KV
+    JR -.fetch secrets.-> KV
+    MI -.auth.-> KV
+    MI -.auth.-> BLOB
+    MI -.auth.-> SQL
+
+    JS -->|query| H
+    JS -->|scrape + login| T
+    JS -->|summarise + extract| AI
+    JS -->|tenders + awards| SQL
+    JS -->|upload ZIPs| BLOB
+    BLOB -.scan on upload.-> BLOB
+    BLOB -->|forward clean ZIPs<br/>via Graph| SP
+    JS -->|render| SWA
+    JS -->|send digest emails<br/>via Graph| M365
+
+    JR -->|poll inbox<br/>every 2 h| M365
+    JR -->|update claim state| SQL
+    JR -->|re-render| SWA
+
+    JS -.structured logs.-> LA
+    JR -.structured logs.-> LA
+        </div>
+
+        <p class="legend">Solid arrows = data writes / API calls. Dotted arrows = auth / secrets / logs. Boxes coloured by zone: blue = Azure compute / static assets, purple = Azure storage, orange = external system, green = identity, grey = trigger.</p>
+    </section>
+
+    <!-- =========================================== -->
+    <!-- DIAGRAM 2: NIGHTLY PROCESS — HIGH LEVEL     -->
+    <!-- =========================================== -->
+    <section>
+        <h2>2. Nightly process flow — high level</h2>
+        <p>Sequence of one nightly scraper run (~7–15 minutes), at component-interaction granularity. For step-by-step decision logic see § 3 below.</p>
+
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant Cron as Cron 06:00 EEST
+    participant Job as Scraper Job
+    participant KV as Key Vault
+    participant Hilma
+    participant Tarjous as tarjouspalvelu
+    participant OpenAI
+    participant Blob
+    participant Defender as Defender for Storage
+    participant SP as SharePoint
+    participant SQL as Azure SQL
+    participant Mail as Service Mailbox
+    participant SWA as Static Web App
+
+    Cron->>Job: trigger
+    Job->>KV: fetch secrets (MI auth)
+    KV-->>Job: tarjouspalvelu, Hilma, OpenAI, Graph creds
+
+    Job->>Hilma: search last 24 h, CPV-filtered
+    Hilma-->>Job: ~50 notices (structured)
+
+    Job->>Tarjous: SSO login via Cloudia
+    Job->>Tarjous: scrape global search (paginated)
+    Tarjous-->>Job: ~100 tenders (listing)
+
+    Note over Job: merge + dedupe (notice_number,<br/>fallback fuzzy on title+org)
+    Note over Job: classify: open / signal / DPS / direct / result
+
+    Job->>OpenAI: summarise relevant tenders
+    OpenAI-->>Job: AI summaries
+    Job->>OpenAI: extract metadata (scoring, contract, reservations)
+    OpenAI-->>Job: structured fields
+
+    Note over Job: 3-tier routing<br/>1A: CGI products → critical alert<br/>1B: partner platforms → high alert<br/>2: department keywords → digest<br/>3: unmatched → dashboard only
+
+    loop For each priority tender
+        Job->>Tarjous: open detail page (click-navigate)
+        Tarjous-->>Job: 6 tabs of content
+        Job->>Tarjous: download ZIP attachment
+        Tarjous-->>Job: ZIP bytes
+        Job->>Blob: upload to staging container
+        Blob->>Defender: scan
+        Defender-->>Blob: clean / quarantined
+        Blob->>SP: forward clean ZIP via Graph
+        SP-->>Job: shareable webUrl
+    end
+
+    Job->>SQL: persist tenders + awards + metadata + history
+    SQL-->>Job: ok
+
+    Job->>Mail: send digest emails (per dept,<br/>or all to reviewer in pilot)
+    Mail-->>Job: ok
+
+    Job->>SWA: render + upload koontinäkymä index.html
+    Job->>Job: emit run-summary log line
+    Note over Job: container exits
+        </div>
+
+        <p class="legend">Reply tracker Job runs the same secret-fetch + Mail.Read poll + SQL update + dashboard re-render every 2 hours on weekdays — see § 4 below.</p>
+    </section>
+
+    <!-- =========================================== -->
+    <!-- DIAGRAM 3: DETAILED STEP-BY-STEP PROCESS    -->
+    <!-- =========================================== -->
+    <section>
+        <h2>3. Nightly process — detailed step-by-step</h2>
+        <p>Every meaningful action and decision in <code>app/main.py</code>, in execution order. Phases match the sequence diagram above. Diamonds are decision branches; cylinders are persistent stores; the parallelogram is data flowing in. Read top-to-bottom, left-to-right.</p>
+
+        <div class="mermaid">
+flowchart TD
+    classDef action fill:#fff,stroke:#666,color:#000
+    classDef decision fill:#fff9c4,stroke:#fbc02d,color:#000
+    classDef store fill:#f3e5f5,stroke:#9b59b6,color:#000
+    classDef ext fill:#fff3e0,stroke:#e67e22,color:#000
+    classDef err fill:#ffebee,stroke:#c0392b,color:#000
+    classDef ok fill:#e8f5e9,stroke:#2ecc71,color:#000
+
+    Start(["Cron trigger 06:00 EEST"]):::ok
+
+    subgraph P1["PHASE 1 — Initialise"]
+        S1["Container starts: Python 3.12 + Chrome"]:::action
+        S2["Managed Identity fetches secrets from Key Vault"]:::action
+        KVS[("Key Vault")]:::store
+        S3["SQLAlchemy connect to Azure SQL via DATABASE_URL"]:::action
+        SQLDB[("Azure SQL DB")]:::store
+        S4["Initialise structured logger to Log Analytics"]:::action
+    end
+
+    subgraph P2["PHASE 2 — Fetch from Hilma"]
+        H1["POST eForms search: last 24 h, CPV in 72/48/64/79/80/85"]:::action
+        HilmaAPI[/"Hilma API"/]:::ext
+        H1OK{"HTTP 200?"}:::decision
+        H1Retry["Wait 30 s, retry up to 3x"]:::err
+        H1Fail["Log error, continue with empty Hilma list"]:::err
+        H2["For each notice convert to standard tender dict"]:::action
+        H3["~50 Hilma tenders"]:::ok
+    end
+
+    subgraph P3["PHASE 3 — Scrape tarjouspalvelu.fi (with nested per-tender loop)"]
+        T1["Launch undetected-chromedriver headless"]:::action
+        T2["Navigate to /Default/Index"]:::action
+        TarjousSite[/"tarjouspalvelu.fi"/]:::ext
+        T3{"Cloudflare Turnstile?"}:::decision
+        T3a["Wait up to 15 s for auto-resolve"]:::action
+        T4["Click Kirjaudu sisaan login link"]:::action
+        T5["Enter username, click Continue"]:::action
+        CloudiaSSO[/"login.cloudia.net"/]:::ext
+        T7["Wait for password field, JS-clear, type password"]:::action
+        T8["ActionChains click on Vaadin login button"]:::action
+        T9{"Logged in?"}:::decision
+        T9a["Wait up to 45 s"]:::action
+        T9b["Force-navigate to /Default/Index"]:::action
+        T10["Apply notice-type filter: Competition + Planning + DPS"]:::action
+        T11["Start page loop, pages 1 to 5"]:::action
+        T12["Extract listing rows on this page: name, org, type, deadline, url, tp_id"]:::action
+
+        subgraph P3I["INNER LOOP — for each tender on this page (only if ENABLE_DETAIL_SCRAPE=1)"]
+            DT1{"ENABLE_DETAIL_SCRAPE = 1?"}:::decision
+            DT1n["Skip detail for this tender"]:::action
+            DT3["ActionChains click on listing row (preserves session)"]:::action
+            DT4["Loop sidebar tabs 0 to 6: Summary, Publication docs, Q&amp;A, Other terms, Procurement object, Persons"]:::action
+            DT5["Capture text per tab into tender.detail_tabs"]:::action
+            DT6["Concat tabs into tender.detail_text"]:::action
+            DT5b["Extract question_deadline from Summary tab"]:::action
+
+            E1{"ENABLE_METADATA_EXTRACTION = 1?"}:::decision
+            E1n["Skip metadata extraction"]:::action
+            E3["Concat Summary + Other terms + Procurement object (12 KB cap)"]:::action
+            E4["OpenAI JSON-mode call: scoring + contract + reservations + evidence"]:::action
+            OpenAIAPI[/"OpenAI"/]:::ext
+            E5{"Weights sum to 100?"}:::decision
+            E5n["Set both weights to null (conservative)"]:::err
+            E6["Update tender: quality_weight, price_weight, scoring_basis, contract_included, reservations_allowed"]:::ok
+
+            DT7{"ENABLE_DOWNLOAD_ATTACHMENTS = 1?"}:::decision
+            DT7n["Skip ZIP download"]:::action
+            DT8["GET /Zip/TarjousPyynnonLiitteet/tp_id with Selenium session cookies"]:::action
+            DT9[("Save ZIP to data/downloads/")]:::store
+
+            SP1{"ENABLE_SHAREPOINT_UPLOAD = 1?"}:::decision
+            SP1n["Skip SharePoint upload"]:::action
+            SP3["MSAL auth: app-only via GRAPH_CLIENT_SECRET or device-code"]:::action
+            SP4["Resolve drive_id for SharePoint site"]:::action
+            SPGraph[/"MS Graph"/]:::ext
+            SP5{"File size &lt;= 4 MB?"}:::decision
+            SP5y["Single PUT to content endpoint"]:::action
+            SP5n["POST createUploadSession then chunked PUT in 5 MiB blocks"]:::action
+            SP6["Defender for Storage scans on upload"]:::action
+            Defender[/"Defender for Storage"/]:::ext
+            SP6OK{"Clean?"}:::decision
+            SP6err["Quarantine ZIP, fire SecOps alert, skip SharePoint forward"]:::err
+            SP7["Capture webUrl, set tender.sharepoint_url"]:::ok
+
+            DT10["driver.back to listings, continue with next tender on this page"]:::action
+        end
+
+        T13["End of page loop: paginate to next page until page 5"]:::action
+        T14["~100 tarjouspalvelu tenders ready"]:::ok
+    end
+
+    subgraph P4["PHASE 4 — Merge + classify"]
+        M1["merge_sources combines both lists"]:::action
+        M2{"notice_number matches?"}:::decision
+        M2a["Exact match: merge Hilma metadata into tarjouspalvelu"]:::action
+        M2b["Fuzzy match on title+org &gt;= 0.85 similarity"]:::action
+        M2c["Mark as separate tender"]:::action
+        M3["Classify each tender"]:::action
+        M3a{"Type contains jalki-ilmoitus?"}:::decision
+        M3a1["category=result, status=closed (FILTERED OUT)"]:::err
+        M3b{"Type contains tietopyynto or markkinavuoropuhelu?"}:::decision
+        M3b1["category=early_signal, status=open"]:::action
+        M3c["category=open_competition, status=open"]:::ok
+    end
+
+    subgraph P5["PHASE 5 — Persist to DB"]
+        D1["For each tender: SELECT WHERE tp_id"]:::action
+        D2{"Already in DB?"}:::decision
+        D2y["UPDATE last_seen + merge new fields via COALESCE"]:::action
+        D2n["INSERT new row"]:::action
+        D3["~150 tenders persisted"]:::ok
+    end
+
+    subgraph P6["PHASE 6 — Save snapshot + AI summarise"]
+        J1["Save full notices list to data/demo_results.json"]:::action
+        AI1["For each open + early_signal tender, up to SUMMARIZE_COUNT"]:::action
+        AI2["Build prompt: title, org, type, deadline, content"]:::action
+        AI3{"detail_text available?"}:::decision
+        AI3y["Use 4000 chars of detail_text"]:::action
+        AI3n["Use 2000 chars of description"]:::action
+        AI4["OpenAI chat.completions.create gpt-4o-mini, 60 s timeout"]:::action
+        AI4OK{"Success?"}:::decision
+        AI4Err["Mark summary as failed, continue"]:::err
+        AI5["Store ai_summary on tender (in-memory only)"]:::ok
+    end
+
+    subgraph P7["PHASE 7 — Three-tier routing"]
+        R1["Load config/routing_config.xlsx via openpyxl"]:::action
+        XLSXSP[("config/routing_config.xlsx")]:::store
+        R2["For each open tender"]:::action
+        R3{"CGI own product name in text? Aromi, Raindance, Titania, ..."}:::decision
+        R3y["Tier 1A: CRITICAL alert"]:::ok
+        R4{"Partner platform name in text? SAP, Azure, ServiceNow, ..."}:::decision
+        R4y["Tier 1B: HIGH alert"]:::ok
+        R5{"Keyword match any Excel rule?"}:::decision
+        R5y["Tier 2: route to dept email"]:::ok
+        R5n{"Catch-all rule defined?"}:::decision
+        R5cy["Tier 2 catch-all"]:::action
+        R5cn["Tier 3: dashboard only"]:::action
+    end
+
+    subgraph P8["PHASE 8 — Email digests"]
+        EM0{"ENABLE_EMAIL = 1?"}:::decision
+        EM0n["Skip email send"]:::action
+        EM1["Group tenders by department"]:::action
+        EM2["For each department"]:::action
+        EM3{"REVIEWER_MODE = 1?"}:::decision
+        EM3y["Override target=REVIEWER_EMAIL, add yellow banner, prefix subject with REVIEW"]:::action
+        EM3n["Use department BU email"]:::action
+        EM4["Build HTML body: tenders sorted relevant-first, AI summaries, scoring, dates, SharePoint links"]:::action
+        EM5["Build .ics with question + tender deadlines (RFC 5545)"]:::action
+        EM6["Attach .ics as text/calendar method=PUBLISH"]:::action
+        EM7{"SMTP creds configured?"}:::decision
+        EM7n["Save HTML + .ics to data/previews/"]:::action
+        EM7y["smtplib.SMTP.send (or Graph sendMail)"]:::action
+        M365Mail[/"CGI M365 service mailbox"/]:::ext
+        EM8["Mark delivered tenders as notified in DB"]:::ok
+    end
+
+    subgraph P9["PHASE 9 — Award analysis (opt-in, only if results tenders exist)"]
+        AN0{"ENABLE_ANALYSIS = 1 AND results tenders present?"}:::decision
+        AN0n["Skip analysis"]:::action
+        AN1["For each unanalysed result tender, up to ANALYSIS_COUNT"]:::action
+        AN2["OpenAI extract: winner_name, winning_price, num_bidders, contract_duration, sector"]:::action
+        AN3["INSERT INTO award_analysis"]:::action
+        AN4["UPDATE competitors: wins, total_value, sectors, last_win_date"]:::action
+    end
+
+    subgraph P10["PHASE 10 — Intelligence reports"]
+        IR1["print_competitor_report (top 20 by wins)"]:::action
+        IR2["print_price_report (avg/min/max per sector)"]:::action
+    end
+
+    subgraph P11["PHASE 11 — Dashboard render (PLANNED, app/dashboard.py is stub)"]
+        DH1["SELECT FROM tenders WHERE status=open + claims joined"]:::action
+        DH2["Render Jinja template: today new + awaiting + claimed + deadlines + Tier 3 unmatched"]:::action
+        DH3["Upload to Static Web App / Storage static website index.html"]:::action
+        SWAUpload[/"Static Web App"/]:::ext
+    end
+
+    subgraph P12["PHASE 12 — Cleanup"]
+        F1["Emit run-summary log line: run_id, tenders_found, duration_s, status"]:::action
+        F2["Close DB connection"]:::action
+        F3["Quit Chrome driver"]:::action
+        F4(["Container exits 0"]):::ok
+    end
+
+    Start --> S1 --> S2
+    S2 -.fetch.-> KVS
+    S2 --> S3
+    S3 -.connect.-> SQLDB
+    S3 --> S4 --> H1
+
+    H1 -.HTTPS.-> HilmaAPI
+    H1 --> H1OK
+    H1OK -->|no| H1Retry --> H1
+    H1OK -->|3 fails| H1Fail --> T1
+    H1OK -->|yes| H2 --> H3 --> T1
+
+    T1 --> T2
+    T2 -.HTTPS.-> TarjousSite
+    T2 --> T3
+    T3 -->|yes| T3a --> T4
+    T3 -->|no| T4
+    T4 --> T5 --> CloudiaSSO --> T7 --> T8 --> T9
+    T9 -->|yes| T10
+    T9 -->|no| T9a --> T9b --> T10
+    T10 --> T11 --> T12 --> DT1
+
+    DT1 -->|no| DT1n --> DT10
+    DT1 -->|yes| DT3 --> DT4 --> DT5 --> DT6 --> DT5b --> E1
+    E1 -->|no| E1n --> DT7
+    E1 -->|yes| E3 --> E4
+    E4 -.HTTPS.-> OpenAIAPI
+    E4 --> E5
+    E5 -->|no| E5n --> DT7
+    E5 -->|yes| E6 --> DT7
+    DT7 -->|no| DT7n --> DT10
+    DT7 -->|yes| DT8 -.HTTPS.-> TarjousSite
+    DT8 --> DT9 --> SP1
+    SP1 -->|no| SP1n --> DT10
+    SP1 -->|yes| SP3 --> SP4
+    SP4 -.HTTPS.-> SPGraph
+    SP4 --> SP5
+    SP5 -->|yes| SP5y --> SP6
+    SP5 -->|no| SP5n --> SP6
+    SP6 -.scan.-> Defender
+    SP6 --> SP6OK
+    SP6OK -->|no| SP6err --> DT10
+    SP6OK -->|yes| SP7 --> DT10
+    SP7 -.update.-> SQLDB
+
+    DT10 --> T13 --> T14 --> M1
+
+    M1 --> M2
+    M2 -->|yes| M2a --> M3
+    M2 -->|no| M2b
+    M2b -->|match| M2a
+    M2b -->|no match| M2c --> M3
+    M3 --> M3a
+    M3a -->|yes| M3a1 --> D1
+    M3a -->|no| M3b
+    M3b -->|yes| M3b1 --> D1
+    M3b -->|no| M3c --> D1
+
+    D1 --> D2
+    D2 -->|yes| D2y --> D3
+    D2 -->|no| D2n --> D3
+    D3 -.write.-> SQLDB
+    D3 --> J1 --> AI1 --> AI2 --> AI3
+    AI3 -->|yes| AI3y --> AI4
+    AI3 -->|no| AI3n --> AI4
+    AI4 -.HTTPS.-> OpenAIAPI
+    AI4 --> AI4OK
+    AI4OK -->|no| AI4Err --> R1
+    AI4OK -->|yes| AI5 --> R1
+
+    R1 -.read.-> XLSXSP
+    R1 --> R2 --> R3
+    R3 -->|yes| R3y --> R4
+    R3 -->|no| R4
+    R4 -->|yes| R4y --> R5
+    R4 -->|no| R5
+    R5 -->|yes| R5y --> EM0
+    R5 -->|no| R5n
+    R5n -->|yes| R5cy --> EM0
+    R5n -->|no| R5cn --> EM0
+
+    EM0 -->|no| EM0n --> AN0
+    EM0 -->|yes| EM1 --> EM2 --> EM3
+    EM3 -->|yes| EM3y --> EM4
+    EM3 -->|no| EM3n --> EM4
+    EM4 --> EM5 --> EM6 --> EM7
+    EM7 -->|no| EM7n --> EM8
+    EM7 -->|yes| EM7y -.SMTP/Graph.-> M365Mail
+    EM7y --> EM8
+    EM8 -.notified=1.-> SQLDB
+    EM8 --> AN0
+
+    AN0 -->|no| AN0n --> DH1
+    AN0 -->|yes| AN1 --> AN2
+    AN2 -.HTTPS.-> OpenAIAPI
+    AN2 --> AN3 --> AN4 -.write.-> SQLDB
+    AN4 --> IR1 --> IR2 --> DH1
+
+    DH1 -.read.-> SQLDB
+    DH1 --> DH2 --> DH3
+    DH3 -.upload.-> SWAUpload
+    DH3 --> F1 --> F2 --> F3 --> F4
+        </div>
+
+        <p class="legend">Total runtime ≈ 7–15 minutes depending on how many tenders trigger the inner detail-scrape loop. Yellow diamonds = decision branches. Red boxes = error / skip paths. Cylinders = persistent stores. Boxes with slashes are external systems. Detail scrape, ZIP download, metadata extract, and SharePoint upload are <strong>nested per-tender inside Phase 3</strong> because the Cloudia session is lost on <code>driver.get(url)</code> — every per-tender step has to happen before pagination moves on.</p>
+    </section>
+
+    <!-- =========================================== -->
+    <!-- DIAGRAM 4: REPLY TRACKER PROCESS            -->
+    <!-- =========================================== -->
+    <section>
+        <h2>4. Reply tracker process — every 2 h on weekdays</h2>
+        <p>Second Container Apps Job. Polls the service mailbox via Microsoft Graph Mail, extracts <code>[TENDER-&lt;tp_id&gt;]</code> from reply subjects, updates claim state in the DB. Smaller than the scraper; same Key Vault + DB connection pattern.</p>
+
+        <div class="mermaid">
+flowchart TD
+    classDef action fill:#fff,stroke:#666,color:#000
+    classDef decision fill:#fff9c4,stroke:#fbc02d,color:#000
+    classDef store fill:#f3e5f5,stroke:#9b59b6,color:#000
+    classDef ext fill:#fff3e0,stroke:#e67e22,color:#000
+    classDef err fill:#ffebee,stroke:#c0392b,color:#000
+    classDef ok fill:#e8f5e9,stroke:#2ecc71,color:#000
+
+    Start(["Cron 0 7-17/2 * * 1-5 (every 2 h, Mon-Fri)"]):::ok
+
+    R1["Container starts"]:::action
+    R2["Managed Identity fetches Graph creds + DATABASE_URL from Key Vault"]:::action
+    KV[("Key Vault")]:::store
+    R3["GET /users/mailbox/messages, filter isRead eq false"]:::action
+    Graph[/"MS Graph (service mailbox)"/]:::ext
+    R4{"Any unread messages?"}:::decision
+    R4n(["Done, exit 0"]):::ok
+    R5["For each message"]:::action
+
+    R6{"Auto-Submitted=auto-replied OR X-Autoreply=yes OR subject contains Auto-reply or Poissaoloviesti?"}:::decision
+    R6y["Mark read, skip"]:::err
+
+    R7{"Subject contains [TENDER-id]?"}:::decision
+    R7n["Mark read, skip (not a tender reply)"]:::err
+
+    R8["Parse tender_id from subject"]:::action
+    R9["Resolve sender to CGI email"]:::action
+
+    R10{"Body contains unclaim keyword (EI, NOT ME, PASS)?"}:::decision
+
+    R11["UPDATE tenders SET status=claimed, claimed_by=sender, claimed_at=GETUTCDATE WHERE tp_id=id"]:::action
+    SQL[("Azure SQL DB")]:::store
+
+    R12["UPDATE tenders SET status=open, claimed_by=NULL WHERE tp_id=id"]:::action
+
+    R13["PATCH /messages/id isRead=true"]:::action
+    R14["Trigger dashboard re-render"]:::action
+    SWA[/"Static Web App"/]:::ext
+    R15(["Loop done, exit 0"]):::ok
+
+    Start --> R1 --> R2
+    R2 -.fetch.-> KV
+    R2 --> R3
+    R3 -.HTTPS.-> Graph
+    R3 --> R4
+    R4 -->|no| R4n
+    R4 -->|yes| R5 --> R6
+    R6 -->|yes| R6y --> R13
+    R6 -->|no| R7
+    R7 -->|no| R7n --> R13
+    R7 -->|yes| R8 --> R9 --> R10
+    R10 -->|no| R11 -.write.-> SQL
+    R10 -->|yes| R12 -.write.-> SQL
+    R11 --> R13
+    R12 --> R13
+    R13 -.PATCH.-> Graph
+    R13 --> R14 -.upload.-> SWA
+    R14 --> R15
+        </div>
+
+        <p class="legend">Typically processes 0–5 messages per run. Auto-reply / OOO heuristic covers Outlook's standard headers + Finnish "Poissaoloviesti". Unclaim keywords are case-insensitive Finnish + English.</p>
+    </section>
+
+    <!-- =========================================== -->
+    <!-- DIAGRAM 5 (was 3): DATA LIFECYCLE & ANALYTICS -->
+    <!-- =========================================== -->
+    <section>
+        <h2>5. Data lifecycle &amp; analytics readiness</h2>
+        <p>This is the diagram that answers "<em>how do we collect data for advanced analytics if we're using SQLite?</em>" — we're not. Production writes to Azure SQL Database, which is queryable from Power BI, the Azure Portal Query Editor, ad-hoc Python notebooks, and any future ML pipeline. Document attachments stay in Blob → SharePoint as before.</p>
+
+        <div class="mermaid">
+flowchart LR
+    classDef src fill:#fff3e0,stroke:#e67e22,stroke-width:2px,color:#000
+    classDef hot fill:#e8f4fd,stroke:#0079c1,stroke-width:2px,color:#000
+    classDef doc fill:#f3e5f5,stroke:#9b59b6,stroke-width:2px,color:#000
+    classDef ops fill:#e8f5e9,stroke:#2ecc71,stroke-width:2px,color:#000
+    classDef ana fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#000
+    classDef future fill:#fafafa,stroke:#999,stroke-dasharray:5 5,color:#000
+
+    H[Hilma API]:::src
+    T[tarjouspalvelu.fi]:::src
+
+    subgraph Hot["Operational hot path (writes)"]
+        SQL[("Azure SQL Database<br/>tenders<br/>award_analysis<br/>competitors<br/>claims<br/>+ multi-year history")]:::hot
+    end
+
+    subgraph DocStore["Document archive"]
+        Blob[("Blob Storage<br/>raw ZIPs<br/>Defender-scanned")]:::doc
+        SP[("CGI SharePoint<br/>staging library<br/>opportunity workspaces")]:::doc
+    end
+
+    subgraph Ops["Operational consumers"]
+        Email[Daily digest emails<br/>to reviewer / BU leaders]:::ops
+        Dash[Koontinäkymä<br/>read-only HTML]:::ops
+    end
+
+    subgraph Analytics["Analytics &amp; intelligence"]
+        PBI[Power BI / Fabric<br/>direct connection or<br/>scheduled semantic model refresh]:::ana
+        AdHoc[Ad-hoc T-SQL<br/>Azure Portal Query Editor<br/>Azure Data Studio]:::ana
+        ML[Future: pricing models<br/>competitor intelligence<br/>bid/no-bid recommender<br/>F6, F7 in spec § 3.2]:::future
+    end
+
+    H --> SQL
+    T --> SQL
+    T --> Blob
+    Blob --> SP
+
+    SQL --> Email
+    SQL --> Dash
+
+    SQL ==>|read| PBI
+    SQL ==>|read| AdHoc
+    SQL ==>|years of accumulated history| ML
+        </div>
+
+        <h3>What this gives us</h3>
+        <table>
+            <tr>
+                <th>Use case</th>
+                <th>How it works on Azure SQL</th>
+                <th>Would it work on SQLite-in-Blob?</th>
+            </tr>
+            <tr>
+                <td>Power BI dashboard for stakeholders</td>
+                <td>Native connector, scheduled refresh, row-level security if needed</td>
+                <td>No — would need to dump to a queryable store first</td>
+            </tr>
+            <tr>
+                <td>Ad-hoc question: "what's the average award price for IT consulting in Helsinki the last 12 months?"</td>
+                <td>One T-SQL query, run from Azure Portal Query Editor, takes 10 seconds</td>
+                <td>No — would need to download the .db file, query locally, never against fresh data</td>
+            </tr>
+            <tr>
+                <td>Competitor profile: "every tender Atea won in 2025"</td>
+                <td>Single query against <code>award_analysis</code></td>
+                <td>Possible but slow (download → query → discard)</td>
+            </tr>
+            <tr>
+                <td>Pricing model training (F6)</td>
+                <td>Scheduled export to Parquet on Blob via T-SQL, train in notebook</td>
+                <td>Possible but every run blocks the live DB</td>
+            </tr>
+            <tr>
+                <td>Concurrent reply tracker writes (every 2 h) without losing scraper writes</td>
+                <td>Native row-level locking, no risk</td>
+                <td>Edge case: if scraper overruns, the second writer's changes can be lost</td>
+            </tr>
+            <tr>
+                <td>"Who claimed which tender?" in real time</td>
+                <td>Reply tracker writes immediately; dashboard reads next refresh</td>
+                <td>Works but requires the Blob round-trip</td>
+            </tr>
+        </table>
+
+        <div class="info">
+            <strong>What about the document content?</strong> ZIP attachments stay in Blob (with Defender scan) and SharePoint (final home), as the diagram shows. Full-text search over their contents is a Future-scope item (F2 — Level 3 AI agents reading attachments). Until then, structured tender metadata in Azure SQL + raw documents in SharePoint is sufficient — every analytical question we expect for MVP is answered by metadata, not by the document body text.
+        </div>
+    </section>
+
+    <!-- =========================================== -->
+    <!-- COST IMPACT                                  -->
+    <!-- =========================================== -->
+    <section>
+        <h2>6. Cost impact of the SQLite → Azure SQL switch</h2>
+
+        <table>
+            <tr>
+                <th>Item</th>
+                <th>SQLite-in-Blob (PoC plan)</th>
+                <th>Azure SQL Serverless GP (recommended)</th>
+            </tr>
+            <tr>
+                <td>Database service</td>
+                <td>€0 (uses existing Blob)</td>
+                <td>~€15–40 / month, auto-pauses when idle</td>
+            </tr>
+            <tr>
+                <td>Connection</td>
+                <td>File copy each run</td>
+                <td>SQLAlchemy / pyodbc, persistent connection during run</td>
+            </tr>
+            <tr>
+                <td>Concurrent writes</td>
+                <td>Last-writer-wins risk if scraper + reply-tracker overlap</td>
+                <td>Native row-level locking</td>
+            </tr>
+            <tr>
+                <td>Power BI / Fabric</td>
+                <td>Not connectable</td>
+                <td>Native connector</td>
+            </tr>
+            <tr>
+                <td>Ad-hoc T-SQL</td>
+                <td>Requires download</td>
+                <td>Azure Portal Query Editor, Azure Data Studio</td>
+            </tr>
+            <tr>
+                <td>Backup / point-in-time restore</td>
+                <td>Manual blob versioning</td>
+                <td>Built-in 7-day PITR</td>
+            </tr>
+            <tr>
+                <td><strong>All-in MVP monthly cost</strong></td>
+                <td><strong>~€30–50</strong></td>
+                <td><strong>~€45–90</strong> (still well under any threshold worth optimising)</td>
+            </tr>
+        </table>
+    </section>
+
+    <footer>
+        <p>Generated using <a href="https://mermaid.js.org/">Mermaid</a> via CDN. Open in any modern browser. To export: print to PDF, or right-click each diagram → "Save image as".</p>
+        <p>Cross-reference: <code>docs/project_spec.md</code> § 4 (architecture), § 5 (resources), § 17 (key decisions). Other diagrams: <code>docs/Tender_Intelligence_Architecture.html</code>, <code>docs/Tender_Intelligence_Process_Flow.html</code> (slide-style hand-built).</p>
+    </footer>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            sequence: { showSequenceNumbers: false, mirrorActors: false }
+        });
+    </script>
+</body>
+</html>

@@ -28,21 +28,22 @@ import os
 from typing import Optional
 
 from dotenv import load_dotenv
-from openai import OpenAI
 
+from .ai_client import get_ai_client
 from .paths import ENV_PATH
 
 load_dotenv(ENV_PATH)
 
 
-def _client() -> OpenAI:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY not set")
+def _client():
+    """Return a configured AI client (Azure OpenAI in prod, OpenAI direct in demo)."""
     # Explicit 60 s timeout — SDK default is 600 s, too long for an
     # unattended nightly run where a single stuck call can wedge the
     # whole extraction loop.
-    return OpenAI(api_key=api_key, timeout=60.0)
+    client = get_ai_client(timeout=60.0)
+    if client is None:
+        raise ValueError("No AI credentials in env (OPENAI_API_KEY or AZURE_OPENAI_ENDPOINT)")
+    return client
 
 
 def _relevant_text(tender: dict) -> str:

@@ -140,13 +140,14 @@ Not tasks we do — inputs we wait for. Track as receive/provide log.
 
 Handed to Azure team once prerequisites arrive. Listed here for single-page visibility.
 
-- [ ] Dockerfile (Python 3.12 + Chrome)
-- [ ] Bicep templates for all Azure resources
+- [ ] Dockerfile (Python 3.12 + Chrome + msodbcsql18 for Azure SQL — see § 17.4)
+- [ ] Bicep templates for all Azure resources (incl. Azure SQL Database Serverless GP)
+- [ ] **`app/storage.py` refactor: SQLite → SQLAlchemy with `DATABASE_URL` env. Local dev keeps SQLite (`sqlite:///data/tenders.db`); production uses Azure SQL via `mssql+pyodbc://…`. Schema migrations remain idempotent ALTER TABLE pattern (works in both dialects with minor care). See `docs/project_spec.md` § 12.5 task A6 + § 17.4.**
 - [ ] Ohjaustiedosto schema alignment + SharePoint-hosted config read
 - [ ] GitHub Actions CI/CD pipeline
-- [ ] `reply_tracker.py` Graph Mail reader
-- [ ] Second Container Apps Job for reply tracking
-- [ ] Minimal koontinäkymä (static HTML → Blob / Static Web App)
+- [ ] **(Scenario B only)** `reply_tracker.py` Graph Mail reader — drop for Scenario A (Strict MVP)
+- [ ] **(Scenario B only)** Second Container Apps Job for reply tracking — drop for Scenario A
+- [ ] **(Scenario B only)** Minimal koontinäkymä (static HTML → Blob / Static Web App) — drop for Scenario A
 - [ ] Defender for Storage enablement
 - [ ] Alerting rules + runbooks
 - [ ] Migration procedure (personal Azure → CGI Public)

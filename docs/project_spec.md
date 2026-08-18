@@ -78,33 +78,58 @@ Matches the Finnish stakeholder requirements (`mvp_requirements_stakeholder.md`)
 **Philosophy:** kevyt, shadow use ~1 month, NO SPAM. One shared inbox during pilot,
 expand gradually after validation.
 
-**Included:**
+> **MVP scope is presented in two scenarios for the customer to choose. Decision pending (2026-04-28).** Both deliver the stakeholder's literal asks; Scenario A is faster and cheaper, Scenario B adds two convenience features we elevated from "nice-to-have." See § 3.1.1 for the trade-off.
 
-| # | Capability | Status |
+#### 3.1.1 Two-scenario decision
+
+Yesterday's review (2026-04-27) found that two MVP items were elevated by us beyond what the stakeholder strictly asked for:
+
+- **Reply-tracker Job + claim state in DB** — not in the stakeholder brief
+- **Koontinäkymä (minimal HTML)** — listed as "*nice-to-have if marginal effort*" by stakeholder
+
+Either is defensible; both add real visibility. But they cost ~3–5 active dev days, ~€10/month, and a second Container Apps Job to operate. The customer should pick consciously.
+
+| | Scenario A — **Strict stakeholder MVP** | Scenario B — **Expanded MVP** (current spec default) |
 |---|---|---|
-| 1 | Monitor Hilma + tarjouspalvelu.fi nightly (RFPs, tietopyynnöt, markkinavuoropuhelut) | Scraper complete; scheduling TBD |
-| 2 | CPV-code filtering (list to be confirmed by CGI — § 14) | Complete |
-| 3 | Upload tender documents (ZIPs) to a single **staging SharePoint workspace**; manual move to the per-opportunity ("oppo") workspace downstream | SharePoint upload TBD |
-| 4 | **Subject identification — keyword-based primary, AI summary secondary.** Tier 1A (CGI own products), Tier 1B (partner platforms), Tier 2 (department keyword Excel), Tier 3 unmatched | Complete (three-tier engine in `routing.py`) |
-| 5 | Extract structured metadata per tender: key dates (question deadline, tender deadline), estimated size, restricted vs. open procedure, scoring mechanism (quality vs. price), contract included, reservations allowed | Key dates + relevance working; remaining extraction fields TBD (may come from Hilma structurally + AI from attachments for the rest) |
-| 6 | **Human-in-the-loop reviewer gate:** digest email is sent to ONE reviewer (not the real BU-leader distribution). Reviewer verifies the matched keywords and the proposed recipients, then forwards manually to the actual team. Automation produces "what it would have done"; reviewer confirms. See § 3.5 | Email generation + SMTP send complete; Graph Mail send TBD |
-| 7 | **Koontinäkymä (minimal):** read-only status dashboard — see § 3.3 | Not built |
-| 8 | **Email-reply claim tracking:** dashboard reflects who has claimed each tender — see § 3.4 | Not built |
-| 9 | Antivirus scanning of downloaded attachments — see § 7.2.1 | Not built (recommended: Microsoft Defender for Storage) |
-| 10 | **Dedicated service mailbox** for outbound digests + inbound replies — see § 3.6 | Not provisioned (CGI M365 admin task) |
-| 11 | ~1 month pilot shadow use | Plan only |
+| Effort | **13–18 active dev days, ~6–8 weeks elapsed** | **17–23 active dev days, ~7–9 weeks elapsed** |
+| Cost | ~€30–60 / month all-in | ~€45–90 / month all-in |
+| Reply-tracker (claim via email reply) | Dropped — claims tracked manually in inbox | Included |
+| Koontinäkymä (read-only HTML) | Dropped — situational awareness via emails | Included |
+| Azure SQL (analytics readiness) | Optional (could stay on SQLite if analytics deferred) | Included from day one |
+| What's lost | No central view of "who claimed which tender". No Power BI dashboard until Phase 2. | — |
+| What's gained | Faster ship, fewer moving parts, easier to operate | Better visibility for the procurement team during pilot |
 
-**Nice-to-haves (build if marginal effort):**
-- iCal calendar invites for tender deadlines (sent as .ics attachment in the digest email)
+**Recommendation:** Scenario A for the absolute fastest path; Scenario B if the analytics + claim visibility are worth the extra ~5 dev days. The current `app/reply_tracker.py` and `app/dashboard.py` are stubs — choosing Scenario A means leaving them as stubs and deferring to Full scope.
 
-**Explicitly NOT in MVP (deferred to Full):**
-- Auto-routing to teams (stakeholder: *"ei spämmää"*)
-- Full dashboard with login + status editing + question-submission tracking — only the minimal read-only koontinäkymä is in MVP
+#### 3.1.2 Capabilities table
+
+✅ = done · 🟡 = code-complete pending live verification · ⚪ = stub / not built
+
+| # | Capability | Scenario A | Scenario B | Status |
+|---|---|:---:|:---:|---|
+| 1 | Monitor Hilma + tarjouspalvelu.fi nightly (RFPs, tietopyynnöt, markkinavuoropuhelut) | ✓ | ✓ | ✅ |
+| 2 | CPV-code filtering (list to be confirmed by CGI — § 14) | ✓ | ✓ | ✅ |
+| 3 | Upload tender documents (ZIPs) to a single **staging SharePoint workspace**; manual move to per-opportunity ("oppo") workspace downstream | ✓ | ✓ | 🟡 |
+| 4 | **Subject identification — keyword-based primary, AI summary secondary.** Tier 1A (CGI own products), Tier 1B (partner platforms), Tier 2 (department keyword Excel), Tier 3 unmatched | ✓ | ✓ | ✅ |
+| 5 | Extract structured metadata per tender: key dates (question deadline, tender deadline), estimated size, restricted vs. open procedure, scoring mechanism (quality vs. price), contract included, reservations allowed | ✓ | ✓ | ✅ |
+| 6 | **Human-in-the-loop reviewer gate:** digest email sent to ONE reviewer (not the real BU-leader distribution). Reviewer verifies and forwards manually. See § 3.5 | ✓ | ✓ | ✅ |
+| 7 | **Koontinäkymä (minimal):** read-only status dashboard — see § 3.3 | ⨯ (defer to Phase 2) | ✓ | ⚪ |
+| 8 | **Email-reply claim tracking:** dashboard reflects who has claimed each tender — see § 3.4 | ⨯ (defer to Phase 2) | ✓ | ⚪ |
+| 9 | Antivirus scanning of downloaded attachments — see § 7.2.1 | ✓ | ✓ | ✅ runbook ready |
+| 10 | **Dedicated service mailbox** for outbound digests (+ inbound replies in B) — see § 3.6 | ✓ Send only | ✓ Send + Read | Not provisioned (CGI M365) |
+| 11 | iCal calendar invites for deadlines (was nice-to-have) | ✓ | ✓ | ✅ |
+| 12 | Azure SQL Database (analytics-ready) — see § 17.4 | Optional | ✓ | ⚪ refactor pending |
+| 13 | ~1 month pilot shadow use | ✓ | ✓ | Plan only |
+
+**Explicitly NOT in MVP (deferred to Full / Phase 2 — both scenarios):**
+
+- Auto-routing direct to BU teams (stakeholder: *"ei spämmää"*)
+- Full interactive dashboard with login + status editing + question-submission tracking + pricing simulation
 - Pricing database / simulation
 - Automated draft cleanup in Cloudia
 - Workspace (oppo) auto-provisioning
 - Level 3 document intelligence (full attachment reading)
-- Competitor tracking dashboard
+- Competitor tracking interactive dashboard
 
 ### 3.2 Full project — Future phases
 
@@ -488,40 +513,44 @@ Audit of `app/main.py`, `storage.py`, `summarize.py`, `notify.py`, `hilma.py`,
 | Resource | Purpose | Spec / SKU | Estimated monthly cost |
 |---|---|---|---|
 | Resource Group | Logical container | — | €0 |
-| Container Apps Environment | Hosts the Job | Consumption | ~€0 baseline |
-| Container Apps Job | Executes nightly scrape | **2 vCPU / 4 GB required** (B1s / 1 GB causes Chromedriver OOM under headless — verified 2026-04-23). 15-min timeout. | ~€2–5 (7 min × 30 days) |
+| Container Apps Environment | Hosts both Jobs | Consumption | ~€0 baseline |
+| Container Apps Job — scraper | Nightly scrape | **2 vCPU / 4 GB required** (B1s / 1 GB causes Chromedriver OOM under headless — verified 2026-04-23). 20-min timeout. | ~€2–5 (7 min × 30 days) |
+| Container Apps Job — reply tracker | Mailbox poll every 2 h | 0.5 vCPU / 1 GB | ~€1 |
 | Azure Container Registry | Stores Docker image | Basic SKU (10 GB) | ~€4 |
-| Key Vault | Secrets: SSO password, API keys, SMTP | Standard | ~€0.50 |
-| Azure Blob Storage | ZIP archive + state backup | Standard LRS, Hot tier | ~€1 (50 GB growth) |
+| Key Vault | Secrets: SSO password, API keys, SMTP, DB connection | Standard | ~€0.50 |
+| Azure Blob Storage | ZIP staging + log archive | Standard LRS, Hot tier | ~€1 (50 GB growth) |
+| **Azure SQL Database** | **Tenders, awards, claims, multi-year history. Power BI / ad-hoc T-SQL ready from day one. See § 17.4 for the SQLite-vs-Azure-SQL decision.** | **Serverless General Purpose, auto-pause when idle** | **~€15–40 (auto-paused most of the day)** |
 | Log Analytics workspace | Logs + metrics | 5 GB/day free quota | €0 |
 | Application Insights | Metrics + alerts | Linked to Log Analytics | €0 |
-| Managed Identity | Auth for Key Vault + Blob | — | €0 |
+| Managed Identity | Auth for Key Vault + Blob + SQL | — | €0 |
 | App Registration (Entra ID) | Graph API: **Sites.ReadWrite.All** (SharePoint upload), **Mail.Send** + **Mail.Read** (service mailbox, see § 3.4) | — | €0 |
 | Microsoft Defender for Storage | Malware scanning of ZIP attachments before SharePoint upload (see § 7) | Per-transaction | ~€0.50 |
 | Azure Static Web App OR Blob static website | Hosts the minimal koontinäkymä (see § 3.3) | Free / Standard | €0–€9 |
 | Alerting (action group + email) | Failure notifications | — | €0 |
 
-**MVP Azure infra total:** **~€12–20/month** (raised slightly with Defender for Storage + Static Web App).
+**MVP Azure infra total:** **~€25–60/month** (raised by Azure SQL Serverless; auto-pause keeps the cost at the low end of the range when idle).
 
 External (not Azure):
 - OpenAI API (gpt-4o-mini): ~€20–30/month at ~300 tenders/day
 
-**Total MVP running cost:** **~€35–50/month**.
+**Total MVP running cost:** **~€45–90/month**.
 
 ### 5.2 Full-project additional resources
 
 | Resource | Purpose | Spec / SKU |
 |---|---|---|
-| Azure SQL Database | Persistent tender history, bid outcomes, pricing | Basic DTU / Serverless General Purpose |
-| App Service Plan | Hosting the dashboard UI | B1 or S1 |
-| Static Web App (alt.) | Hosting the dashboard UI | Standard |
+| App Service Plan | Hosting the dashboard UI (interactive, F5) | B1 or S1 |
+| Static Web App (alt.) | Hosting the dashboard UI (interactive) | Standard |
 | Service Bus | Async queue for Level 3 AI document analysis | Basic |
 | Cognitive Search (optional) | Full-text search across historical tenders | Basic |
 | Azure AI Document Intelligence (optional) | Complement Claude/GPT for structured doc parsing | S0 |
 | Azure OpenAI (alternative to OpenAI API) | If CGI prefers keeping inference inside Azure | S0 |
+| Azure SQL elastic pool (if multiple sub-projects share the DB) | Cost optimisation when scope grows | Standard |
 
-**Full-project infra total:** ~€40–100/month above MVP.
-**Total Full-project running cost (incl. AI):** **~€80–200/month** depending on Level 3 AI usage.
+Note: Azure SQL Database is **in MVP** (§ 5.1) — analytics readiness was not deferred. F5 (interactive dashboard) builds on top of the same DB.
+
+**Full-project infra total:** ~€40–80/month above MVP.
+**Total Full-project running cost (incl. AI):** **~€90–200/month** depending on Level 3 AI usage.
 
 ### 5.3 Environments
 
@@ -565,17 +594,18 @@ Avoids waiting on CGI provisioning cycles while we're still iterating.
 
 | Resource | Cost |
 |---|---|
-| Container Apps Jobs | ~€2–4 |
+| Container Apps Jobs (scraper + reply tracker) | ~€3–5 |
 | Blob Storage (growing to ~50 GB) | ~€1 |
+| Azure SQL Database (Serverless GP, auto-pause) | ~€10–25 (idle most of the day) |
 | Key Vault | ~€0.50 |
 | Log Analytics (within 5 GB free tier) | €0 |
 | Container Registry (Basic) | ~€4 |
 | OpenAI API (~300 tenders/day × gpt-4o-mini) | ~€20–30 |
 | Defender for Storage | ~€0.50 |
-| **Total** | **~€30/month** |
+| **Total** | **~€40–65/month** |
 
 Azure's €200 free credit for new subscriptions covers the first 30 days; after
-that, ~€30/month personal out-of-pocket for as long as the simulation is live.
+that, ~€40–65/month personal out-of-pocket for as long as the simulation is live.
 
 **Migration cost (personal → CGI Public):** roughly one day. If infrastructure is
 written as Bicep from the start, the migration is essentially one
@@ -810,7 +840,7 @@ continuously and CGI provisioning items (§ 12.3) arrive on time.
 
 Total: ~17–23 active developer days, distributed across 5 workstreams.
 
-**A. Remaining application code — ~3–5 days**
+**A. Remaining application code — ~4–7 days**
 
 | # | Item | Estimate |
 |---|---|---|
@@ -819,6 +849,7 @@ Total: ~17–23 active developer days, distributed across 5 workstreams.
 | A3 | Ohjaustiedosto schema alignment + SharePoint-hosted Excel read | 0.5–1 d |
 | A4 | `app/reply_tracker.py` — Graph Mail polling, claim-state updates | 1.5 d |
 | A5 | `app/dashboard.py` — minimal koontinäkymä Jinja → static HTML | 1–2 d |
+| A6 | **`app/storage.py` — refactor SQLite → Azure SQL via SQLAlchemy.** Introduce `DATABASE_URL` env (sqlite:/// for local dev, mssql+pyodbc:// for prod). Schema migrations via Alembic or hand-rolled `IF NOT EXISTS`. Dockerfile gains the `msodbcsql18` package. See § 17.4. | 1–2 d |
 
 **B. Infrastructure & deployment — ~5–7 days**
 
@@ -922,6 +953,7 @@ _Note: "Can headless Chrome pass Cloudflare from an Azure datacenter IP?" — pr
 | 2026-04-22 | Ville + Claude | Initial draft of project spec based on stakeholder requirements, today's headless validation, and Azure deployment planning |
 | 2026-04-27 | Ville + Claude | Repo restructured for Azure handover: production code consolidated into `app/`, deployment artifacts into `deploy/`, runtime state into `data/`. Entry point renamed `demo_scraper.py` → `app/main.py`. New `app/paths.py` centralises path resolution. Bare module references in this spec still refer to the same logical modules under `app/`. New stub modules `app/reply_tracker.py` and `app/dashboard.py` mark the two MVP code items still to be filled in (see § 12.2). |
 | 2026-04-27 | Ville + Claude | Added § 10.2 pilot acceptance criteria, expanded § 12 with comprehensive work estimate (12.4–12.7), added § 16 glossary of Finnish procurement terms, added § 17 key technical decisions log. |
+| 2026-04-27 | Ville + Claude | **Database decision flipped: Azure SQL Database (Serverless GP) in production from day one, not SQLite-in-Blob.** Driven by the analytics-readiness requirement (Power BI, ad-hoc T-SQL, F5–F7 features). § 5.1 adds Azure SQL DB to MVP resources; § 5.2 removes it from Full-only; § 5.3.1 simulation cost updated; § 12.5 adds storage refactor task A6 (~1–2 d); § 17.4 rewritten with revised rationale; cost figures throughout updated to ~€45–90/mo MVP. New companion diagram: `docs/Tender_Intelligence_Architecture_Process.html` (Mermaid). |
 
 ---
 
@@ -1051,16 +1083,48 @@ in headless mode (browser detection signals can change).
 
 ### 17.4 Database
 
-**Decision:** SQLite, downloaded from Blob at start and uploaded at exit.
+**Decision:** **Azure SQL Database (Serverless General Purpose) in
+production from day one.** SQLite remains the local-dev backend, selected
+via `DATABASE_URL` env (`sqlite:///data/tenders.db` locally,
+`mssql+pyodbc://…` in prod). `app/storage.py` will be refactored to use
+SQLAlchemy so the same code path serves both backends — see § 12.5 task A6.
 
-**Rationale:** This scale (300–500 tenders/day, all writes from one
-process) doesn't justify a managed database. Blob round-trip adds < 5
-seconds. Eliminates Azure SQL cost (~€15–40/mo) and a connection-string
-secret. Schema migrations via idempotent `ALTER TABLE … ADD COLUMN` in
-`app/storage.py:init_db()`.
+**Rationale (revised 2026-04-27 from the original SQLite-only plan):**
 
-**Reconsider when:** Multiple processes need concurrent write access (e.g.
-the dashboard becomes interactive), or the DB grows past ~100 MB.
+The original plan was SQLite downloaded from Blob at start and uploaded at
+exit. That plan is fine for *operational* state — single nightly writer,
+small file, cheap. But it's a dead end for the **analytics features the
+roadmap depends on** (F4 calendar, F5 dashboard, F6 pricing simulation,
+F7 competitor intelligence). Specifically:
+
+- Power BI / Fabric cannot connect to a SQLite file inside an Azure Blob
+- Ad-hoc T-SQL across years of accumulated history requires download → query → discard each time
+- The two Container Apps Jobs (scraper at 06:00, reply-tracker every 2 h on weekdays) can theoretically overlap if the scraper overruns. Last-writer-wins on the SQLite file would silently lose the loser's changes
+- Migrating off SQLite once we have a year of pilot data is more painful than starting on Azure SQL now (schema port, data dump, validation, downtime, parallel-run window)
+
+Cost delta is small: Azure SQL Serverless General Purpose with auto-pause
+costs ~€15–40/month at our query pattern (mostly idle). On the total
+~€45–90/month MVP budget this is well within tolerance and well under the
+~€100–200/month "Full scope" ceiling stakeholders already accepted in § 14.
+
+**The application code change is small:**
+
+- Connection string lives in `DATABASE_URL` (env, secret in Key Vault)
+- `app/storage.py` switches from `sqlite3` calls to SQLAlchemy Core or ORM
+- Schema migrations via Alembic OR keep the current `IF NOT EXISTS` ALTER pattern (works against both backends with minor dialect care)
+- Dockerfile adds the `msodbcsql18` package (~5 lines of apt + Microsoft repo)
+- Local dev keeps using SQLite — no extra setup for new contributors
+
+**Reconsider when:** Volume grows past Serverless General Purpose
+breakpoint (~50 GB / heavy concurrent usage) — at that point evaluate
+elastic pool, Hyperscale, or moving the cold history to Synapse / Fabric
+Lakehouse. Not on the MVP horizon.
+
+**Why not stay on SQLite and add a periodic export to Parquet for analytics?**
+It's possible. We rejected it because it adds two moving parts (the export
+job and the Parquet store), still loses the live-query capability for
+ad-hoc questions, and doesn't fix the concurrency edge case. Azure SQL
+solves all three for less code and similar cost.
 
 ### 17.5 Routing as Excel, not code
 

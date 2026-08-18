@@ -1,21 +1,24 @@
 """
-SQLite storage for scraped tenders.
+Storage for scraped tenders — backend-agnostic.
 
-Tracks all tenders, flags new ones, and provides filtering.
+Backend is selected at runtime by app/db.py based on the DATABASE_URL env:
+  - Not set:  SQLite at data/tenders.db (demo / local default)
+  - Set:      Whatever SQLAlchemy URL points at (Azure SQL, Postgres, etc.)
+
+The same code path serves both. SQL strings below are SQLite-flavoured —
+they currently work against SQLite without modification. For SQL Server
+deployment, the Azure team should verify these specific patterns:
+  - INSERT OR REPLACE INTO  → no T-SQL equivalent; use MERGE or upsert
+  - datetime('now')         → use GETDATE() or SYSUTCDATETIME() in T-SQL
+  - DEFAULT (datetime('now')) for column defaults — same caveat
+  - ALTER TABLE … ADD COLUMN — drop the COLUMN keyword in T-SQL
 """
 
-import sqlite3
 import json
 from datetime import datetime
 
+from .db import get_db
 from .paths import DB_PATH
-
-
-def get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
 
 
 def init_db():
@@ -325,7 +328,7 @@ def get_open_tenders(category: str = None) -> list[dict]:
             "SELECT * FROM tenders WHERE status = 'open' ORDER BY deadline"
         ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [dict(r._mapping) for r in rows]
 
 
 def get_new_tenders() -> list[dict]:
@@ -335,7 +338,7 @@ def get_new_tenders() -> list[dict]:
         "SELECT * FROM tenders WHERE status = 'open' AND notified = 0 ORDER BY deadline"
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [dict(r._mapping) for r in rows]
 
 
 def mark_notified(tp_ids: list[str]):
@@ -384,7 +387,7 @@ def get_unanalyzed_results() -> list[dict]:
         ORDER BY t.last_seen DESC
     """).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [dict(r._mapping) for r in rows]
 
 
 def store_award_analysis(analysis: dict):
@@ -420,7 +423,7 @@ def update_competitor(name: str, contract_value: float = None, sector: str = Non
     existing = conn.execute("SELECT * FROM competitors WHERE name = ?", (name,)).fetchone()
 
     if existing:
-        existing = dict(existing)
+        existing = dict(existing._mapping)
         wins = existing["wins"] + (1 if win else 0)
         losses = existing["losses"] + (0 if win else 1)
         total_value = (existing["total_contract_value"] or 0) + (contract_value or 0)
@@ -451,7 +454,7 @@ def get_competitors(min_wins: int = 1) -> list[dict]:
         "SELECT * FROM competitors WHERE wins >= ? ORDER BY wins DESC", (min_wins,)
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [dict(r._mapping) for r in rows]
 
 
 def get_price_history(sector: str = None) -> list[dict]:
@@ -467,7 +470,7 @@ def get_price_history(sector: str = None) -> list[dict]:
             "SELECT * FROM award_analysis WHERE winning_price > 0 OR estimated_value > 0 ORDER BY analyzed_at DESC"
         ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [dict(r._mapping) for r in rows]
 
 
 # Initialize DB on import

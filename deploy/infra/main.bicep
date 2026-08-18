@@ -5,10 +5,11 @@
 //   - Container Apps Job (reply-tracker, planned)
 //   - Azure Container Registry (Basic)
 //   - Key Vault (secrets, MI-accessed)
-//   - Blob Storage (ZIP staging + SQLite backup)
+//   - Blob Storage (ZIP staging container, scanned by Defender)
+//   - Azure SQL Database (Serverless GP, auto-pause) — see § 17.4
 //   - Log Analytics + Application Insights
 //   - Defender for Storage on the staging container
-//   - Static Web App (hosts the koontinäkymä) — optional
+//   - Static Web App (hosts the koontinäkymä)
 //
 // SKELETON — modules referenced below have TODO markers; fill them in
 // during the Azure-team build phase. Spec: docs/project_spec.md § 5.
@@ -37,6 +38,7 @@ param logAnalyticsWorkspaceId string = ''
 // module containerRegistry 'modules/container_registry.bicep' = { ... }
 // module keyVault         'modules/key_vault.bicep'           = { ... }
 // module storage          'modules/storage.bicep'             = { ... }
+// module azureSql         'modules/azure_sql.bicep'           = { ... }   // Serverless GP, auto-pause; tenders/awards/claims/history; see docs/project_spec.md § 17.4
 // module logAnalytics     'modules/log_analytics.bicep'       = { ... }
 // module appInsights      'modules/app_insights.bicep'        = { ... }
 // module containerAppsEnv 'modules/container_apps_env.bicep'  = { ... }

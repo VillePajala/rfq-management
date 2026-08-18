@@ -27,7 +27,10 @@ load_dotenv(ENV_PATH)
 PROFILE_DIR = str(CHROME_PROFILE)
 DOWNLOADS_DIR = str(DOWNLOADS)
 
-# Known organization IDs on tarjouspalvelu.fi
+# Known organization IDs on tarjouspalvelu.fi (used only when an explicit
+# org argument is passed, e.g. for dev/testing against a single org).
+# Production / default scraping uses /Default/Index which returns tenders
+# from ALL Finnish organisations.
 ORGANIZATIONS = {
     "helsinki": "13",
     "espoo": "8",
@@ -36,6 +39,9 @@ ORGANIZATIONS = {
     "oulu": "19",
     "turku": "28",
 }
+
+# Sentinel value meaning "all of Finland via /Default/Index global search"
+GLOBAL_ORG = "global"
 
 
 from .logger import log_to_file, clear_log
@@ -421,8 +427,33 @@ def navigate_to_publications(driver, org_id: str, mode: str = "tenders") -> bool
 
         return True
 
-    # Not logged in — use org-specific page (no pre-filtering available)
-    log("Not logged in — using org-specific page (no search filters).")
+    # Not on /Default/Index. Decide path by org_id:
+    #   "global" (default)     -> force-navigate to /Default/Index anonymously
+    #                             (anonymous can browse listings, just no detail tabs)
+    #   explicit org id        -> org-specific listing page (dev/testing)
+    if org_id == GLOBAL_ORG:
+        log("Not on global search page — navigating to /Default/Index (anonymous if login failed).")
+        try:
+            driver.get("https://tarjouspalvelu.fi/Default/Index")
+            time.sleep(5)
+            if not wait_for_cloudflare(driver):
+                return False
+            apply_search_filters(driver, mode)
+            try:
+                driver.execute_script("var s=document.getElementById('ilmoituksiaPerSivu'); if(s){s.value='50';}")
+                driver.execute_script("HaeSivu(1);")
+                time.sleep(8)
+            except Exception as e:
+                log(f"Could not configure search: {e}")
+            total = get_total_tender_count(driver)
+            if total:
+                log(f"Search returned {total} tenders across all of Finland.")
+            return True
+        except Exception as e:
+            log(f"Failed to navigate to /Default/Index: {e}")
+            return False
+
+    log(f"Not logged in — using org-specific page (org_id={org_id}, no search filters).")
     try:
         pub_link = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-test-key='julkaisutNavLink']"))
@@ -973,16 +1004,24 @@ def extract_notices(driver, org_slug: str, max_pages: int = 5,
     return all_notices
 
 
-def scrape_notices(org_slug: str, mode: str = "tenders") -> list[dict]:
+def scrape_notices(org_slug: str = GLOBAL_ORG, mode: str = "tenders") -> list[dict]:
     """Full scraping flow for tarjouspalvelu.fi.
+
+    org_slug='global' (default) — scrape ALL of Finland via /Default/Index
+    org_slug='helsinki' / 'espoo' / ... — scrape one organisation only
+                                          (intended for dev / testing)
 
     mode='tenders' — open tenders only (for daily notifications)
     mode='analytics' — results/awards only (for price/competitor analysis)
     mode='all' — everything
     """
-
-    org_id = ORGANIZATIONS.get(org_slug, org_slug)
-    url = f"https://tarjouspalvelu.fi/{org_slug}"
+    if not org_slug or org_slug == GLOBAL_ORG:
+        org_slug = GLOBAL_ORG
+        org_id = GLOBAL_ORG
+        url = "https://tarjouspalvelu.fi/Default/Index"
+    else:
+        org_id = ORGANIZATIONS.get(org_slug, org_slug)
+        url = f"https://tarjouspalvelu.fi/{org_slug}"
 
     log_step(1, "LAUNCHING BROWSER")
     log("Starting undetected Chrome (bypasses Cloudflare bot detection)...")
@@ -1149,7 +1188,10 @@ def main():
 
         # Phase 2: tarjouspalvelu.fi scraping
         log_step(2, "SCRAPING TARJOUSPALVELU.FI")
-        org = "helsinki"
+        # Default: scrape all Finland via /Default/Index. Pass an org name
+        # as an arg (e.g. `python -m app.main --mode=combined helsinki`) to
+        # restrict to one organisation — useful for dev/testing only.
+        org = GLOBAL_ORG
         for arg in sys.argv[1:]:
             if not arg.startswith("-"):
                 org = arg
@@ -1168,17 +1210,20 @@ def main():
             return
 
     else:
-        org = "helsinki"
+        # Default: scrape all Finland. Optional positional arg restricts to one org.
+        org = GLOBAL_ORG
         for arg in sys.argv[1:]:
             if not arg.startswith("-"):
                 org = arg
                 break
-        org_name = org.capitalize()
-        org_id = ORGANIZATIONS.get(org, org)
+        is_global = (org == GLOBAL_ORG)
+        org_name = "All Finland" if is_global else org.capitalize()
+        org_id = GLOBAL_ORG if is_global else ORGANIZATIONS.get(org, org)
+        target_url = "https://tarjouspalvelu.fi/Default/Index" if is_global else f"https://tarjouspalvelu.fi/{org}"
         mode_labels = {"tenders": "Open Tenders (daily)", "analytics": "Award Results (analytics)", "all": "All Types"}
         print(f"  Mode: {mode_labels.get(mode, mode)}")
         print(f"  Organization: {org_name} (ID: {org_id})")
-        print(f"  Target: https://tarjouspalvelu.fi/{org}")
+        print(f"  Target: {target_url}")
         print()
 
         start_time = time.time()

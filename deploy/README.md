@@ -7,6 +7,8 @@ nothing gets blocked waiting on something later in the list.
 > **Single source of truth for what to build:** [`docs/project_spec.md`](../docs/project_spec.md).
 > This handbook is the *operational* companion — what to do, in what order,
 > with what choices at each step. The spec is *what*, this is *how*.
+>
+> **Visual companion:** [`docs/Tender_Intelligence_Architecture_Process.html`](../docs/Tender_Intelligence_Architecture_Process.html) — six Mermaid diagrams covering system architecture, high-level process, detailed step-by-step process (every decision branch in `app/main.py`), reply tracker, data lifecycle, and cost impact. Open in any browser.
 
 ---
 
@@ -22,9 +24,10 @@ service mailbox for reply-driven claim tracking. A third lightweight asset
 - **Compute:** Azure Container Apps Jobs, schedule-triggered, **2 vCPU / 4 GB minimum**
 - **Region:** **North Europe** (Cloudflare bypass verified 2026-04-23 from B2s VM in this region)
 - **Image:** Python 3.12 + Chrome stable + setuptools shim + undetected-chromedriver 3.5.5 — see `Dockerfile`
-- **Storage:** Azure Blob (ZIPs + SQLite backup), SharePoint (final document home), Key Vault (secrets)
+- **Database:** **Azure SQL Database (Serverless General Purpose, auto-pause).** All tenders, awards, claims, history. Power BI / ad-hoc T-SQL ready from day one. See [`docs/project_spec.md`](../docs/project_spec.md) § 17.4 for why we chose this over SQLite-in-Blob
+- **Document storage:** Azure Blob (ZIP staging, scanned by Defender), SharePoint (final document home), Key Vault (secrets)
 - **AV:** Microsoft Defender for Storage on the staging Blob container — runbook at [`docs/defender_runbook.md`](../docs/defender_runbook.md)
-- **Cost:** ~€35–50 per month all-in (infra ~€12–20, OpenAI ~€20–30) — see [`docs/project_spec.md`](../docs/project_spec.md) § 5.1
+- **Cost:** ~€45–90 per month all-in (infra ~€25–60, OpenAI ~€20–30) — see [`docs/project_spec.md`](../docs/project_spec.md) § 5.1
 - **Effort:** ~17–23 active developer days + 4-week pilot, ~7–9 weeks elapsed — full breakdown in [`docs/project_spec.md`](../docs/project_spec.md) § 12.4–12.7
 - **Pilot success criteria:** [`docs/project_spec.md`](../docs/project_spec.md) § 10.2 (10 measurable gates)
 - **Why each design choice:** [`docs/project_spec.md`](../docs/project_spec.md) § 17 (key technical decisions log)
@@ -93,6 +96,7 @@ Building any of them in MVP will get pushback from the stakeholder.
                           │  Container Apps Job: replies  │  ← cron every 2h, weekdays
                           │       │      │                │
                           │       │      ├──→ Key Vault (secrets via MI)
+                          │       │      ├──→ Azure SQL DB (tenders, awards, claims, history)
                           │       │      ├──→ Blob (ZIP staging) ── Defender for Storage
                           │       │      ├──→ Log Analytics + App Insights
                           │       │      └──→ Storage static website (koontinäkymä HTML)
@@ -184,6 +188,7 @@ secrets, registry, identity) into which the Job will be deployed in step 4.
 | Key Vault | Standard | Secrets only; no certs |
 | Azure Container Registry | Basic (10 GB) | Single image, single tag stream |
 | Storage Account | StorageV2, LRS, Hot tier | Two containers: `staging` (ZIPs, scanned) + `dashboard` (static website with index.html) |
+| **Azure SQL Database** | **Serverless General Purpose, auto-pause when idle, 1 vCore min** | **Tenders, awards, claims, history. ~€15–40/mo (idle most of the day). See [`docs/project_spec.md`](../docs/project_spec.md) § 17.4 for the SQLite-vs-Azure-SQL decision.** |
 | Container Apps Environment | Consumption | Hosts both Jobs |
 | Static Web App (optional) | Free or Standard | Alternative to Storage static website for koontinäkymä; needed if you want Entra ID app-level auth out of the box |
 
@@ -285,7 +290,7 @@ image, env file, or repo.
 | `cronExpression` | `0 6 * * *` (Container Apps uses UTC) | 06:00 UTC = 09:00 EEST in summer / 08:00 EET winter |
 | `parallelism` | 1, `replicaCompletionCount` 1 | This is a singleton run, not a fan-out |
 | `replicaRetryLimit` | 1 | Re-trying a failed scrape against tarjouspalvelu within minutes can compound rate-limit issues; let alerting handle it |
-| `volumes` | (none) | SQLite is downloaded from Blob at start, uploaded at exit (see Step 5) |
+| `volumes` | (none) | DB writes go to Azure SQL via `DATABASE_URL`; no volume needed. Local dev uses SQLite under `data/` |
 
 **Cron timing tradeoffs:** earlier than 06:00 EEST risks Hilma not having
 yesterday's notices indexed. Later than 09:00 EEST means the digest arrives
@@ -296,7 +301,7 @@ mid-morning, which is too late for procurement teams to react same-day.
 
 - `az containerapp job execution list -n scraper-job` shows successful executions
 - Test execution logs end with `[run-summary] tenders_found=N duration_s=X status=ok`
-- A `data/tenders.db` blob exists in Blob Storage (SQLite was uploaded on exit)
+- The Azure SQL DB has new rows for the current day's tenders (`SELECT COUNT(*) FROM tenders WHERE first_seen >= CAST(GETDATE() AS DATE)`)
 
 ---
 
@@ -365,13 +370,13 @@ Implementation plan (matches [`docs/project_spec.md`](../docs/project_spec.md) �
 1. Second Container Apps Job, `cronExpression: "0 7-17/2 * * 1-5"` (every 2 h, 07:00–17:00 EEST, weekdays)
 2. Polls `GET /users/{mailbox}/messages?$filter=isRead eq false`
 3. For each: parse `[TENDER-<tp_id>]` from subject; resolve sender; skip if auto-reply (`Auto-Submitted: auto-replied` header, OOO subject markers)
-4. Write claim state to SQLite (downloaded from Blob at start, uploaded at exit, just like the scraper Job)
+4. Write claim state to Azure SQL via `DATABASE_URL` (same connection pattern as the scraper Job; Azure SQL handles concurrent writes natively, so no Blob round-trip needed)
 5. Mark message read
 6. Trigger dashboard re-render (Step 7)
 
 **Definition of done:**
 
-- A test reply to a digest email updates the tender's row in SQLite (`status=claimed, claimed_by=<sender>, claimed_at=<utc>`)
+- A test reply to a digest email updates the tender's row in Azure SQL (`SELECT status, claimed_by, claimed_at FROM tenders WHERE tp_id = …`)
 - An OOO auto-reply does NOT update state
 - Reply tracker Job execution succeeds on schedule
 
@@ -397,7 +402,7 @@ Regenerated at the end of each scraper Job run + each reply-tracker Job run.
 The current `app/dashboard.py` is a stub. Implementation:
 
 - Jinja template `templates/dashboard.html`
-- Read from SQLite, group by tier / department / claim state
+- Read from Azure SQL via `DATABASE_URL`, group by tier / department / claim state
 - Render to `data/dashboard/index.html` locally
 - Upload to `<storage>.blob.core.windows.net/$web/index.html` in production with `Cache-Control: max-age=300`
 
@@ -582,6 +587,7 @@ All env vars consumed by the application. Mark as **secret** for Key Vault.
 | `OPENAI_MODEL` | `gpt-4.1-nano` | Use `gpt-4o-mini` for production quality |
 | `HEADLESS` | `1` | Always 1 in containers (no display) |
 | `HILMA_DAYS` | `1` | Look-back window for Hilma queries |
+| `DATABASE_URL` | (unset → `sqlite:///data/tenders.db`) | Connection string. Production: `mssql+pyodbc://USER:PASS@SERVER.database.windows.net:1433/DBNAME?driver=ODBC+Driver+18+for+SQL+Server` |
 
 ### Credentials (all **secret** — Key Vault in production)
 
@@ -594,6 +600,7 @@ All env vars consumed by the application. Mark as **secret** for Key Vault.
 | `GRAPH_TENANT_ID` / `GRAPH_CLIENT_ID` / `GRAPH_CLIENT_SECRET` | Entra App Registration |
 | `SHAREPOINT_SITE_HOST` / `SHAREPOINT_SITE_PATH` / `SHAREPOINT_FOLDER` | CGI SharePoint admin |
 | `REVIEWER_EMAIL` | Stakeholder choice (pilot only) |
+| **`DATABASE_URL`** | **CGI Azure SQL admin — connection string for the production database. Use Managed Identity authentication where possible (`Authentication=ActiveDirectoryMsi`) instead of SQL auth password.** |
 
 Authoritative file with comments: [`.env.example`](../.env.example).
 
@@ -651,20 +658,23 @@ Per spec § 5.1, at expected production scale (~300 tenders/day, full pipeline):
 
 | Item | Monthly cost |
 |---|---|
-| Container Apps Job execution (~7 min × 30 days × 2 jobs) | ~€2–5 |
+| Container Apps Job execution (scraper + reply tracker) | ~€3–5 |
 | ACR Basic | ~€4 |
 | Key Vault | ~€0.50 |
 | Blob Storage (50 GB growth) | ~€1 |
+| **Azure SQL Database (Serverless GP, auto-pause)** | **~€15–40** (idle most of the day) |
 | Log Analytics (within free quota) | €0 |
 | Defender for Storage | ~€0.50 |
 | Static Web App | €0–9 |
-| **Azure subtotal** | **~€8–20** |
+| **Azure subtotal** | **~€25–60** |
 | OpenAI (gpt-4o-mini, ~300 tenders/day) | ~€20–30 |
 | Hilma API | free |
-| **All-in monthly** | **~€30–50** |
+| **All-in monthly** | **~€45–90** |
 
-Phase 1a personal-Azure simulation cost: ~€30/month, covered by Azure's
-€200 first-month free credit for the first ~6 weeks.
+Phase 1a personal-Azure simulation cost: ~€40–65/month, covered by Azure's
+€200 first-month free credit for the first ~3–4 weeks.
+
+**Why Azure SQL is in MVP and not deferred:** see [`docs/project_spec.md`](../docs/project_spec.md) § 17.4. Short version: analytics readiness (Power BI, ad-hoc T-SQL, F5–F7 features) requires a queryable multi-reader store from day one; migrating off SQLite later is more painful than starting on Azure SQL now. Cost delta is small relative to the budget.
 
 ---
 

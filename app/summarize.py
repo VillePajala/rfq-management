@@ -1,13 +1,17 @@
 """
-AI summarization of tenders using OpenAI gpt-4o-mini.
+AI summarization of tenders.
+
+Uses an in-tenant AI service in production (Azure OpenAI / AI Foundry) or
+OpenAI direct in demo mode. Provider is selected automatically at runtime
+by app/ai_client.py based on env vars — no code change between modes.
 
 Generates concise, actionable summaries for CGI domain experts.
 """
 
 import os
-from openai import OpenAI
 from dotenv import load_dotenv
 
+from .ai_client import get_ai_client
 from .paths import ENV_PATH
 
 load_dotenv(ENV_PATH)
@@ -45,12 +49,10 @@ Be direct and honest. A false positive wastes more time than a missed opportunit
 
 def summarize_tender(tender: dict) -> str:
     """Generate an AI summary for a single tender."""
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
+    # 60 s timeout so a stuck AI call can't wedge the nightly run.
+    client = get_ai_client(timeout=60.0)
+    if client is None:
         return ""
-
-    # 60 s timeout so a stuck OpenAI call can't wedge the nightly run.
-    client = OpenAI(api_key=api_key, timeout=60.0)
 
     name = tender.get("name", "")
     org = tender.get("organisation", "")
@@ -101,13 +103,13 @@ Content ({source}):
 
 def summarize_tenders(tenders: list[dict], max_count: int = None) -> list[dict]:
     """Add AI summaries to a list of tenders. Returns the same list with 'ai_summary' field added."""
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("  [AI] No OPENAI_API_KEY in .env — skipping summarization.")
+    if get_ai_client(timeout=1.0) is None:
+        print("  [AI] No AI credentials in env (OPENAI_API_KEY or AZURE_OPENAI_ENDPOINT) — skipping summarization.")
         return tenders
 
     to_summarize = tenders[:max_count] if max_count else tenders
-    print(f"  [AI] Summarizing {len(to_summarize)} tenders with gpt-4o-mini...")
+    model = os.getenv("OPENAI_MODEL", "gpt-4.1-nano")
+    print(f"  [AI] Summarizing {len(to_summarize)} tenders with {model}...")
 
     for i, tender in enumerate(to_summarize):
         summary = summarize_tender(tender)

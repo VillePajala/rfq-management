@@ -13,9 +13,9 @@ Runs once per results tender, stores permanently.
 
 import os
 import json
-from openai import OpenAI
 from dotenv import load_dotenv
 
+from .ai_client import get_ai_client
 from .paths import ENV_PATH
 from .storage import get_unanalyzed_results, store_award_analysis, update_competitor
 
@@ -45,12 +45,10 @@ Important:
 
 def analyze_single_result(tender: dict) -> dict:
     """Extract structured data from a single results tender using AI."""
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
+    # 60 s timeout so a stuck AI call can't wedge the nightly run.
+    client = get_ai_client(timeout=60.0)
+    if client is None:
         return {}
-
-    # 60 s timeout so a stuck OpenAI call can't wedge the nightly run.
-    client = OpenAI(api_key=api_key, timeout=60.0)
 
     name = tender.get("name", "")
     org = tender.get("organisation", "")
@@ -85,9 +83,8 @@ Description:
 
 def analyze_results(max_count: int = None) -> dict:
     """Analyze all unanalyzed results tenders. Returns stats."""
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("  [ANALYSIS] No OPENAI_API_KEY — skipping results analysis.")
+    if get_ai_client(timeout=1.0) is None:
+        print("  [ANALYSIS] No AI credentials in env (OPENAI_API_KEY or AZURE_OPENAI_ENDPOINT) — skipping results analysis.")
         return {"analyzed": 0, "skipped": 0}
 
     unanalyzed = get_unanalyzed_results()

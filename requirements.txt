@@ -9,3 +9,8 @@ openpyxl>=3.1.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 msal>=1.28
+sqlalchemy>=2.0
+# pyodbc is needed only when DATABASE_URL points at SQL Server.
+# It needs unixodbc-dev to compile on Linux — the deploy/Dockerfile
+# installs that. Local SQLite-only dev does not require pyodbc.
+pyodbc>=5.0; sys_platform != "win32" or python_version >= "3.0"

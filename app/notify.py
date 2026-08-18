@@ -127,6 +127,7 @@ def build_email_html(contact: str, department: str, tenders: list[dict],
 
         desc = t.get("description_short", t.get("description", "")[:200])
         url = t.get("url", "")
+        sharepoint_url = t.get("sharepoint_url", "")
 
         ai_summary = t.get("ai_summary", "")
         summary_source = t.get("_summary_source", "")
@@ -167,6 +168,7 @@ def build_email_html(contact: str, department: str, tenders: list[dict],
             {'<div style="font-size:0.85em; color:#566573;">Scoring: ' + scoring_display + '</div>' if scoring_display else ''}
             {'<div style="font-size:0.85em; color:#566573;">Contract included: ' + contract_display + '</div>' if contract_display else ''}
             {'<div style="font-size:0.85em; color:#566573;">Reservations: ' + reservations_display + '</div>' if reservations_display else ''}
+            {'<div style="font-size:0.85em;">Documents: <a href="' + sharepoint_url + '">View in SharePoint</a></div>' if sharepoint_url else ''}
             {'<div style="font-size:0.8em; color:#666;">CPV: ' + t.get("cpv_codes", "")[:60] + (' | Value: €{:,.0f}'.format(t["estimated_value"]) if t.get("estimated_value") and t["estimated_value"] > 0 else '') + '</div>' if t.get("cpv_codes") else ''}
             {'<div class="tender-desc" style="background:#eef6ff; padding:8px; margin-top:8px; border-radius:4px; font-size:0.9em; line-height:1.5;">' + source_tag + ('<br>' if source_tag else '') + ai_summary_html + '</div>' if ai_summary_html else ''}
             {'<div class="tender-desc">' + desc + '</div>' if desc and not ai_summary else ''}
