@@ -127,7 +127,7 @@ Not tasks we do — inputs we wait for. Track as receive/provide log.
 - [ ] Contact persons per department (Asiakasvastaava + BU leaders)
 - [ ] Reviewer mailbox address (for MVP pilot gate)
 - [ ] Service mailbox `tender-agent@cgi.com` (or similar) provisioned in CGI M365
-- [ ] `tarjouspalvelu.fi` service account created (NOT Ville's personal)
+- [ ] `tarjouspalvelu.fi` service account created (NOT Ville's named account) — request from **Kasper Avela, kasper.avela@cgi.com**, Cloudia org admin for CGI Suomi Oy. Same route for dev accounts for new developers.
 - [ ] SharePoint staging site + library + permissions granted to the Entra app
 - [ ] CGI Public Azure subscription + resource group access
 - [ ] OpenAI or Azure OpenAI subscription for production volume

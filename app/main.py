@@ -7,6 +7,9 @@ Navigates to the publications listing and extracts procurement notices.
 
 import json
 import os
+import re
+import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -67,10 +70,40 @@ def log_step(step: int, msg: str):
     log_to_file(f"{'='*50}")
 
 
+def _installed_chrome_major() -> int | None:
+    """Major version of the locally installed Chrome, or None if undetectable.
+
+    undetected-chromedriver otherwise downloads the newest driver available,
+    which refuses to start against an older local Chrome
+    (SessionNotCreatedException: "only supports Chrome version N").
+    Pinning `version_main` to what is actually installed keeps the two in step.
+    Override with CHROME_VERSION_MAIN if detection picks the wrong binary.
+    """
+    override = os.getenv("CHROME_VERSION_MAIN", "").strip()
+    if override.isdigit():
+        return int(override)
+    for binary in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+        path = shutil.which(binary)
+        if not path:
+            continue
+        try:
+            out = subprocess.run([path, "--version"], capture_output=True,
+                                 text=True, timeout=10).stdout
+        except Exception:
+            continue
+        match = re.search(r"(\d+)\.", out)
+        if match:
+            return int(match.group(1))
+    return None
+
+
 def create_driver() -> uc.Chrome:
     headless = os.getenv("HEADLESS", "0") == "1"
     options = uc.ChromeOptions()
     options.add_argument("--no-sandbox")
+    # Default /dev/shm is 64 MB in most containers; Chrome crashes under load
+    # without this. Harmless on a normal desktop.
+    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--lang=fi-FI")
     if headless:
@@ -84,8 +117,10 @@ def create_driver() -> uc.Chrome:
     if headless and profile_dir == PROFILE_DIR:
         # Avoid collision with the visible profile when both run in sequence
         profile_dir = PROFILE_DIR + "_headless"
-    log(f"Chrome mode: {'HEADLESS=new' if headless else 'VISIBLE'} | profile: {os.path.basename(profile_dir)}")
-    return uc.Chrome(options=options, user_data_dir=profile_dir)
+    version_main = _installed_chrome_major()
+    log(f"Chrome mode: {'HEADLESS=new' if headless else 'VISIBLE'} | profile: {os.path.basename(profile_dir)}"
+        f" | chrome: {version_main or 'auto'}")
+    return uc.Chrome(options=options, user_data_dir=profile_dir, version_main=version_main)
 
 
 def wait_for_cloudflare(driver, timeout=60) -> bool:

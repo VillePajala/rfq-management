@@ -381,6 +381,7 @@ The full list, grouped by purpose. The same groups appear in `.env.example`.
 | `HEADLESS` | `1` | Headless Chrome (always 1 in containers; 0 to watch the browser locally) |
 | `DEMO_PAUSE` | `0` | Pause for Enter key at demo checkpoints (only when `HEADLESS=0`) |
 | `OUTPUT_JSON` | `data/demo_results.json` | Path to write the full run output to |
+| `CHROME_PROFILE_DIR` | `data/chrome_profile` | Chrome user-data dir. Headless runs auto-append `_headless` to avoid clashing with a visible run's profile. |
 
 ---
 

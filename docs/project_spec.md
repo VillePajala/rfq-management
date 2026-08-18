@@ -400,7 +400,7 @@ stakeholder's "light pilot" philosophy.
 | **Contact persons per department** — both Asiakasvastaava and BU leader(s) | CGI HR / procurement | Required for production; first wave = BU leaders | Ville's personal email for everything |
 | **Reviewer mailbox address** (MVP pilot gate) | CGI IT + stakeholder | Required for MVP pilot | Ville's personal email |
 | **Service mailbox** (agent's sending mailbox — see § 3.6) | CGI M365 admin | Required for production | Gmail App Password + Ville's personal sender address |
-| **tarjouspalvelu.fi service account** | Riku Turkia / CGI | Required for production; pilot can continue on Ville's account short-term | Ville's personal CGI tarjouspalvelu.fi account |
+| **tarjouspalvelu.fi service account** | Kasper Avela (kasper.avela@cgi.com), Cloudia org admin for CGI Suomi Oy | Required for production; pilot can continue on Ville's named account short-term | Named user account issued to Ville under the CGI Suomi Oy Cloudia organisation |
 | **SharePoint target** — site URL + staging library + Entra app permissions | CGI SharePoint admin | Required for production | Local `downloads/` folder, Azure Blob in personal-Azure simulation |
 | **CGI Public Azure tenant access** | CGI Azure admin | Required for production | Ville's personal Azure subscription |
 | **OpenAI / Azure OpenAI subscription** | CGI procurement | Required for production at scale | Ville's personal OpenAI key |
@@ -620,7 +620,7 @@ mailbox endpoints.
 | System | Owner | Protocol | What CGI needs to provide |
 |---|---|---|---|
 | Hilma API | Hansel Oy (public) | REST | API key (free; self-service registration at `hns-hilma-prod-apim.developer.azure-api.net`) |
-| tarjouspalvelu.fi | Cloudia / Mercell | Browser automation (no API) | Dedicated service account (NOT Ville's personal) |
+| tarjouspalvelu.fi | Cloudia / Mercell | Browser automation (no API) | Dedicated service account under the CGI Suomi Oy Cloudia organisation, requested from Kasper Avela |
 | OpenAI API | OpenAI | REST | API key + billing account |
 | SharePoint site | CGI Public | Graph API | Site URL + library ID + Entra app registration with Sites.ReadWrite.All |
 | M365 SMTP relay | CGI Public | SMTP/TLS or Graph Mail | Service mailbox + credentials, or app registration with Mail.Send |
@@ -674,7 +674,7 @@ scraper → Blob container (staging)
 
 - [ ] DPSC (Data Processing Security Classification) — request via CGI procedure before production deployment
 - [ ] DPIA — likely not required (public data, minimal PII), but confirm with CGI DPO
-- [ ] Service account terms-of-use review — confirm with Riku / tarjouspalvelu.fi that automated supplier-portal use is permitted
+- [ ] Service account terms-of-use review — confirm that automated supplier-portal use is permitted. Ask Kasper Avela (CGI's Cloudia org admin) first; escalate to Cloudia support (tuki@cloudia.fi) if the answer isn't in CGI's contract
 - [ ] Container image vulnerability scanning — enable ACR scan on push
 - [ ] Dependency scanning — Dependabot on the GitHub repo
 
@@ -927,7 +927,7 @@ Tracked primarily in `README.md` § *Known Risks & Open Questions*. Items specif
 2. **Oppo-workspace naming + location?** Which SharePoint site is the agent's staging workspace? Is "Opportunity workspace" the right term for the downstream manual destination, and who owns creating them?
 3. **Shared inbox for MVP digest?** Which single mailbox receives the daily email during the pilot?
 4. **Ohjaustiedosto ownership + columns?** Who builds and maintains the routing Excel (see § 3.5 proposed columns)? Are the columns right — are we missing anything CGI tracks? How do we measure coverage (e.g., % of tenders falling into Tier 3 "unmatched")?
-5. **Service account ownership on tarjouspalvelu.fi?** Who creates the dedicated account (NOT Ville's personal), and who rotates the password?
+5. **Service account ownership on tarjouspalvelu.fi?** ~~Who creates the dedicated account?~~ **Answered 2026-08-18:** accounts are provisioned by CGI's own Cloudia organisation administrator, **Kasper Avela (kasper.avela@cgi.com)** — not self-service registration. A dedicated service identity is the same request, with a different identity. Still open: who owns password rotation, and what mailbox the service account is registered against.
 6. **Reviewer gate — who?** Which single CGI person sits in the reviewer role during the MVP pilot? What's their SLA for forwarding (same-day? 24 h?) — and fallback if they're away?
 7. **Reviewer gate — exit criteria?** When does the reviewer gate come down (emails start going direct to BU leaders)? Suggested: after N weeks of "no routing corrections needed," or a go-decision meeting with stakeholder.
 
